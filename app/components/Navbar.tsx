@@ -7,21 +7,27 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
   Menu,
+  Info,
   X,
   User,
   Sparkles,
-  Compass,
   Home,
   LogIn,
+  Layers,
+  Tv,
+  BookOpen,
 } from "lucide-react";
+import AnimeSearch from "./AnimeSearch";
+import { ThemeToggle } from "./ThemeToggle";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
+  const [isCatalogueHovered, setIsCatalogueHovered] = useState(false);
+
   const pathname = usePathname();
 
-  // Détection du scroll pour l'effet "Glass"
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
@@ -30,14 +36,21 @@ export default function Navbar() {
 
   const navLinks = [
     { name: "Accueil", href: "/", icon: <Home size={18} /> },
-    { name: "Catalogue", href: "/catalogue", icon: <Compass size={18} /> },
+    { name: "News", href: "/news", icon: <Info size={18} /> },
     {
-      name: "Moods",
-      href: "/moods",
+      name: "Reccomendation",
+      href: "/Reccomendation",
       icon: <Sparkles size={18} />,
       special: true,
     },
   ];
+
+  const catalogueSubLinks = [
+    { name: "Animes", href: "/animes", icon: <Tv size={18} /> },
+    { name: "Mangas", href: "/mangas", icon: <BookOpen size={18} /> },
+  ];
+
+  const isCatalogueActive = pathname === "/animes" || pathname === "/mangas";
 
   return (
     <>
@@ -45,19 +58,19 @@ export default function Navbar() {
         initial={{ y: -100 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.5, ease: "circOut" }}
-        className={`fixed top-0 mb-7 left-0 right-0 z-50 transition-all duration-300 ease-in-out border-b ${
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ease-in-out border-b ${
           scrolled
             ? "bg-[#0B1622]/80 backdrop-blur-xl border-white/5 py-3 shadow-lg shadow-black/20"
             : "bg-transparent border-transparent py-5"
         }`}
       >
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto text-center px-6 flex items-center justify-between">
           {/* --- LOGO --- */}
           <Link
             href="/"
             className="flex items-center gap-2 group relative z-20"
           >
-            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg shadow-indigo-500/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
+            <div className="w-9 h-9 from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg shadow-indigo-500/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
               A
             </div>
             <span className="text-xl font-bold tracking-tight text-white">
@@ -65,30 +78,68 @@ export default function Navbar() {
             </span>
           </Link>
 
-          {/* --- DESKTOP NAVIGATION (Centrée) --- */}
-          <div className="hidden md:flex items-center gap-1 bg-[#151f2e]/50 p-1.5 rounded-full border border-white/5 backdrop-blur-sm shadow-inner relative">
-            {navLinks.map((link) => {
-              const isActive = pathname === link.href;
-              const isHovered = hoveredPath === link.href;
+          {/* --- DESKTOP NAVIGATION --- */}
+          <div className="hidden md:flex items-center gap-6">
+            <div className="flex items-center gap-1 bg-[#151f2e]/50 p-1.5 rounded-full border border-white/5 backdrop-blur-sm shadow-inner relative">
+              {navLinks.map((link) => {
+                const isActive = pathname === link.href;
+                const isHovered = hoveredPath === link.href;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onMouseEnter={() => setHoveredPath(link.href)}
+                    onMouseLeave={() => setHoveredPath(null)}
+                    className={`relative px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-2 z-10 ${
+                      isActive
+                        ? "text-white"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {(isActive || isHovered) && (
+                      <motion.div
+                        layoutId="navbar-pill"
+                        className={`absolute inset-0 rounded-full -z-10 ${
+                          isActive
+                            ? "bg-indigo-600 shadow-md shadow-indigo-500/20"
+                            : "bg-white/5"
+                        }`}
+                        transition={{
+                          type: "spring",
+                          bounce: 0.2,
+                          duration: 0.6,
+                        }}
+                      />
+                    )}
+                    <span
+                      className={`relative z-10 flex items-center gap-2 ${
+                        link.special ? "text-indigo-300 font-bold" : ""
+                      }`}
+                    >
+                      {link.icon} {link.name}
+                    </span>
+                  </Link>
+                );
+              })}
 
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onMouseEnter={() => setHoveredPath(link.href)}
-                  onMouseLeave={() => setHoveredPath(null)}
-                  className={`relative px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-2 z-10 ${
-                    isActive
+              {/* Catalogue */}
+              <div
+                className="relative h-full"
+                onMouseEnter={() => setIsCatalogueHovered(true)}
+                onMouseLeave={() => setIsCatalogueHovered(false)}
+              >
+                <div
+                  className={`relative px-5 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-2 z-10 cursor-pointer ${
+                    isCatalogueActive || isCatalogueHovered
                       ? "text-white"
                       : "text-slate-400 hover:text-slate-200"
                   }`}
                 >
-                  {/* Fond animé au survol ou actif */}
-                  {(isActive || isHovered) && (
+                  {(isCatalogueActive || isCatalogueHovered) && (
                     <motion.div
                       layoutId="navbar-pill"
                       className={`absolute inset-0 rounded-full -z-10 ${
-                        isActive
+                        isCatalogueActive
                           ? "bg-indigo-600 shadow-md shadow-indigo-500/20"
                           : "bg-white/5"
                       }`}
@@ -99,25 +150,48 @@ export default function Navbar() {
                       }}
                     />
                   )}
-
-                  <span
-                    className={`relative z-10 flex items-center gap-2 ${
-                      link.special ? "text-indigo-300 font-bold" : ""
-                    }`}
-                  >
-                    {link.icon} {link.name}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Layers size={18} /> Catalogue
                   </span>
-                </Link>
-              );
-            })}
-          </div>
+                </div>
 
-          {/* --- ACTIONS (Search + Profile) --- */}
-          <div className="flex items-center gap-3 z-20">
-            <button className="p-2.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-all active:scale-95">
-              <Search size={20} strokeWidth={2.5} />
-            </button>
+                <AnimatePresence>
+                  {isCatalogueHovered && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute top-full mt-2 w-48 bg-[#151f2e] p-2 rounded-xl border border-white/10 shadow-xl shadow-black/40 z-50"
+                    >
+                      {catalogueSubLinks.map((subLink) => (
+                        <Link
+                          key={subLink.href}
+                          href={subLink.href}
+                          className={`flex items-center gap-3 p-3 rounded-lg text-sm transition-colors ${
+                            pathname === subLink.href
+                              ? "bg-indigo-600 text-white font-bold"
+                              : "text-slate-300 hover:bg-white/5 hover:text-slate-100"
+                          }`}
+                        >
+                          {subLink.icon}
+                          {subLink.name}
+                        </Link>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
 
+            {/* --- SEARCH DESKTOP --- */}
+            <div className="hidden md:block">
+              <AnimeSearch />
+            </div>
+
+            <ThemeToggle />
+
+            {/* LOGIN BUTTON */}
             <Link
               href="/login"
               className="hidden md:flex items-center gap-2 bg-white/5 hover:bg-indigo-600 text-slate-200 hover:text-white px-5 py-2.5 rounded-full text-sm font-bold transition-all border border-white/5 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/20 group"
@@ -129,7 +203,7 @@ export default function Navbar() {
               <span>Connexion</span>
             </Link>
 
-            {/* Mobile Menu Toggle */}
+            {/* MOBILE MENU BUTTON */}
             <button
               className="md:hidden p-2 text-slate-300 bg-white/5 rounded-lg"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -140,7 +214,7 @@ export default function Navbar() {
         </div>
       </motion.nav>
 
-      {/* --- MOBILE MENU OVERLAY --- */}
+      {/* --- MOBILE MENU --- */}
       <AnimatePresence>
         {mobileMenuOpen && (
           <motion.div
@@ -161,10 +235,41 @@ export default function Navbar() {
                   {link.name}
                 </Link>
               ))}
+
+              {/* Catalogue mobile */}
+              <div className="flex flex-col gap-2 pl-4 border-l border-white/20">
+                <h3 className="text-sm text-slate-400 font-bold uppercase mt-2 flex items-center gap-2">
+                  <Layers size={16} /> Catalogue
+                </h3>
+                {catalogueSubLinks.map((subLink) => (
+                  <Link
+                    key={subLink.href}
+                    href={subLink.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-4 text-base text-slate-300 p-2 rounded-lg hover:bg-white/5 hover:text-indigo-400 transition-colors"
+                  >
+                    {subLink.icon}
+                    {subLink.name}
+                  </Link>
+                ))}
+              </div>
+
+              {/* --- SEARCH MOBILE --- */}
+              <div className="md:hidden mt-4">
+                <AnimeSearch
+                  onSelect={(anime) => {
+                    setMobileMenuOpen(false);
+                    if (anime.mal_id) {
+                      window.location.href = `/anime/${anime.mal_id}`;
+                    }
+                  }}
+                />
+              </div>
+
               <div className="h-px bg-white/10 my-2" />
               <Link
                 href="/login"
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-4 rounded-xl text-center font-bold shadow-lg shadow-indigo-900/20 flex items-center justify-center gap-2"
+                className="w-full from-indigo-600 to-violet-600 text-white py-4 rounded-xl text-center font-bold shadow-lg shadow-indigo-900/20 flex items-center justify-center gap-2"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <LogIn size={20} />
