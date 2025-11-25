@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   description:
     "Découvrez, suivez et organisez vos animes et mangas avec une UX moderne et intelligente.",
   icons: {
-    icon: "/favicon.ico", // Pense à mettre une icône plus tard
+    icon: "/favicon.ico",
   },
 };
 
@@ -46,9 +46,12 @@ export default function RootLayout({
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <Navbar />
-          <main className="min-h-screen mt-24 bg-[#EDF1F5] dark:bg-[#0B1622] text-slate-900 dark:text-slate-100 px-4 md:p-10 font-sans selection:bg-indigo-500 selection:text-white">
+
+          {/* 🎯 Container CENTRÉ propre */}
+          <main className="min-h-screen mt-24 w-full max-w-6xl mx-auto px-4 text-slate-900 dark:text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
             {children}
           </main>
+
           <Footer />
         </ThemeProvider>
       </body>

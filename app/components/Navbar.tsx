@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase"; // Assure-toi que ce chemin est bon
+import { User as SupabaseUser } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Search,
   Menu,
   Info,
   X,
@@ -13,6 +14,7 @@ import {
   Sparkles,
   Home,
   LogIn,
+  LogOut,
   Layers,
   Tv,
   BookOpen,
@@ -26,20 +28,58 @@ export default function Navbar() {
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
   const [isCatalogueHovered, setIsCatalogueHovered] = useState(false);
 
+  // --- STATE AUTH ---
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const supabase = createClient();
   const pathname = usePathname();
 
+  // --- EFFETS ---
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+
+    // Check User Session au chargement
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
+
+    // Écouteur de changement d'état (Login/Logout)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      subscription.unsubscribe();
+    };
   }, []);
+
+  // --- HANDLERS ---
+  const handleLogin = async () => {
+    // Si on est sur la page /login, on renvoie vers l'accueil "/", sinon on reste sur la page actuelle
+    const next = pathname === "/login" ? "/" : pathname;
+
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // On ajoute le paramètre ?next=... à l'URL de callback
+        redirectTo: `${window.location.origin}/auth/callback?next=${next}`,
+      },
+    });
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setMobileMenuOpen(false);
+  };
 
   const navLinks = [
     { name: "Accueil", href: "/", icon: <Home size={18} /> },
     { name: "News", href: "/news", icon: <Info size={18} /> },
     {
-      name: "Reccomendation",
-      href: "/Reccomendation",
+      name: "Recommendation",
+      href: "/recommendation",
       icon: <Sparkles size={18} />,
       special: true,
     },
@@ -70,7 +110,7 @@ export default function Navbar() {
             href="/"
             className="flex items-center gap-2 group relative z-20"
           >
-            <div className="w-9 h-9 from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg shadow-indigo-500/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
+            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center text-white font-black text-lg shadow-lg shadow-indigo-500/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-300">
               A
             </div>
             <span className="text-xl font-bold tracking-tight text-white">
@@ -191,17 +231,47 @@ export default function Navbar() {
 
             <ThemeToggle />
 
-            {/* LOGIN BUTTON */}
-            <Link
-              href="/login"
-              className="hidden md:flex items-center gap-2 bg-white/5 hover:bg-indigo-600 text-slate-200 hover:text-white px-5 py-2.5 rounded-full text-sm font-bold transition-all border border-white/5 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/20 group"
-            >
-              <User
-                size={18}
-                className="group-hover:-translate-y-0.5 transition-transform"
-              />
-              <span>Connexion</span>
-            </Link>
+            {/* --- USER / LOGIN LOGIC (DESKTOP) --- */}
+            {user ? (
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/profile"
+                  className="w-10 h-10 rounded-full overflow-hidden border-2 border-indigo-500 hover:border-white transition-colors"
+                  title="Mon Profil"
+                >
+                  {user.user_metadata?.avatar_url ? (
+                    <img
+                      src={user.user_metadata.avatar_url}
+                      alt="Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white">
+                      <User size={20} />
+                    </div>
+                  )}
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="text-slate-400 hover:text-red-400 transition-colors p-2"
+                  title="Déconnexion"
+                >
+                  <LogOut size={20} />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleLogin}
+                className="hidden md:flex items-center gap-2 bg-white/5 hover:bg-indigo-600 text-slate-200 hover:text-white px-5 py-2.5 rounded-full text-sm font-bold transition-all border border-white/5 hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/20 group"
+              >
+                <img
+                  src="https://www.svgrepo.com/show/475656/google-color.svg"
+                  className="w-4 h-4 bg-white rounded-full p-0.5"
+                  alt="G"
+                />
+                <span>Connexion</span>
+              </button>
+            )}
 
             {/* MOBILE MENU BUTTON */}
             <button
@@ -267,14 +337,44 @@ export default function Navbar() {
               </div>
 
               <div className="h-px bg-white/10 my-2" />
-              <Link
-                href="/login"
-                className="w-full from-indigo-600 to-violet-600 text-white py-4 rounded-xl text-center font-bold shadow-lg shadow-indigo-900/20 flex items-center justify-center gap-2"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <LogIn size={20} />
-                Se connecter
-              </Link>
+
+              {/* --- USER LOGIC (MOBILE) --- */}
+              {user ? (
+                <>
+                  <Link
+                    href="/profile"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10"
+                  >
+                    {user.user_metadata?.avatar_url ? (
+                      <img
+                        src={user.user_metadata.avatar_url}
+                        className="w-10 h-10 rounded-full"
+                      />
+                    ) : (
+                      <User size={24} className="text-white" />
+                    )}
+                    <span className="text-white font-bold">Mon Profil</span>
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-red-400 py-3 font-bold border border-red-500/30 bg-red-500/10 rounded-xl hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <LogOut size={20} /> Déconnexion
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleLogin();
+                  }}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-4 rounded-xl text-center font-bold shadow-lg shadow-indigo-900/20 flex items-center justify-center gap-2"
+                >
+                  <LogIn size={20} />
+                  Se connecter
+                </button>
+              )}
             </div>
           </motion.div>
         )}

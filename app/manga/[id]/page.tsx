@@ -42,7 +42,6 @@ interface Manga {
   image_url: string | null;
   description: string | null;
   description_fr: string | null;
-  background?: string | null;
   score: number | null;
   scored_by?: number | null;
   rank?: number | null;
@@ -138,7 +137,6 @@ export default function MangaDetailsPage() {
         let manga = data as Manga;
         let descriptionFr: string | null = null;
         let descriptionEn: string | null = null;
-        let backgroundText: string | null = null;
 
         // Décompression description
         try {
@@ -152,15 +150,6 @@ export default function MangaDetailsPage() {
 
         // La table manga_shonen n'a pas la colonne description_fr. Nous traduisons et mettons à jour si le champ n'est pas présent.
 
-        // Décompression background (assumant que c'est le champ 'background' qui contient le texte)
-        if (manga.background) {
-          try {
-            backgroundText = decompressBase64(manga.background);
-          } catch {
-            backgroundText = manga.background;
-          }
-        }
-
         // Le code de traduction est adapté ici (mais il faudra mettre à jour la BDD pour stocker la traduction si elle manque)
         // Pour l'instant, on suppose que la colonne `description` contient la version originale (EN) et on la traduit si nécessaire.
         const needsTranslation = true; // Simuler la traduction pour l'exemple
@@ -173,19 +162,31 @@ export default function MangaDetailsPage() {
             const res = await fetch("/api/translate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: descriptionEn,
-                target_lang: "FR",
-              }),
+              body: JSON.stringify({ text: descriptionEn }),
             });
-
             if (res.ok) {
               const json = await res.json();
               const translatedText = json.translated || descriptionEn;
-              // NOTE: Le stockage de la description_fr compressée devrait être géré dans la BDD pour les mangas.
-              // const compressedFr = compressToBase64(translatedText);
-              // await supabase.from(TABLE_NAME).update({ description_fr: compressedFr }).eq("id", manga.id);
-              descriptionFr = translatedText;
+
+              try {
+                // Compression
+                const compressedFr = compressToBase64(translatedText);
+
+                // Mise à jour dans Supabase
+                const { error: updateError } = await supabase
+                  .from(TABLE_NAME)
+                  .update({ description_fr: compressedFr })
+                  .eq("id", manga.id);
+
+                if (updateError)
+                  console.error("Erreur mise à jour traduction:", updateError);
+
+                // On garde la version traduite pour l'affichage
+                descriptionFr = translatedText;
+              } catch (err) {
+                console.error("Erreur compression / stockage:", err);
+                descriptionFr = translatedText; // au moins afficher la traduction brute
+              }
             }
           } catch (err) {
             console.error("Erreur traduction:", err);
@@ -199,7 +200,6 @@ export default function MangaDetailsPage() {
         setMangaData({
           ...manga,
           description: finalDescription,
-          background: backgroundText,
         });
 
         // Fetch mangas similaires (simplement les 6 premiers différents de l'ID actuel pour l'exemple)
@@ -492,26 +492,6 @@ export default function MangaDetailsPage() {
               </p>
             </motion.div>
             {/* FIN DE LA SECTION SYNOPSIS */}
-
-            {/* Background */}
-            {mangaData.background && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-500/5 dark:to-purple-500/5 rounded-2xl p-8 shadow-xl border border-indigo-200/50 dark:border-indigo-500/20"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <Info className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                  <h3 className="text-2xl font-black text-slate-800 dark:text-white">
-                    Informations supplémentaires
-                  </h3>
-                </div>
-                <p className="text-base leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
-                  {mangaData.background}
-                </p>
-              </motion.div>
-            )}
 
             {/* Genres & Themes (Inchangés) */}
             <motion.div

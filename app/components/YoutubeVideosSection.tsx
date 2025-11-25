@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Play, Film, Music, Tv, Loader2, ExternalLink } from "lucide-react";
+import {
+  Play,
+  Film,
+  Music,
+  Tv,
+  Loader2,
+  ExternalLink,
+  X,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface YouTubeVideo {
@@ -11,28 +21,32 @@ interface YouTubeVideo {
   thumbnail?: string;
   channelTitle?: string;
   publishedAt?: string;
+  fromCache?: boolean;
+  table?: string;
 }
 
 interface YouTubeVideosSectionProps {
   animeTitle: string;
+  animeId: string;
   animeEnglishTitle?: string;
 }
 
 export default function YouTubeVideosSection({
   animeTitle,
+  animeId,
   animeEnglishTitle,
 }: YouTubeVideosSectionProps) {
   const [trailerData, setTrailerData] = useState<YouTubeVideo | null>(null);
   const [openingData, setOpeningData] = useState<YouTubeVideo | null>(null);
   const [episodeData, setEpisodeData] = useState<YouTubeVideo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedVideo, setSelectedVideo] = useState<string | null>(null); // Utiliser le titre anglais en priorité pour de meilleurs résultats YouTube // Déplacé en dehors de l'useEffect pour une meilleure cohérence des dépendances
+  const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
+  const [showFullPlayer, setShowFullPlayer] = useState(false);
 
-  const effectiveTitle = animeEnglishTitle?.trim() || animeTitle?.trim() || "";
+  const effectiveTitle = animeTitle?.trim() || animeEnglishTitle?.trim() || "";
 
   useEffect(() => {
-    // Ne rien faire si le titre est vide
-    if (!effectiveTitle) {
+    if (!effectiveTitle || !animeId) {
       setLoading(false);
       return;
     }
@@ -45,7 +59,7 @@ export default function YouTubeVideosSection({
           fetch(
             `/api/youtube-search?title=${encodeURIComponent(
               effectiveTitle
-            )}&type=${type}`
+            )}&type=${type}&id=${animeId}`
           )
         );
 
@@ -62,15 +76,6 @@ export default function YouTubeVideosSection({
         setTrailerData(trailer);
         setOpeningData(opening);
         setEpisodeData(episode);
-
-        // NOUVEAU : Sélectionner le premier résultat valide à afficher par défaut
-        if (trailer?.found && trailer.videoId) {
-          setSelectedVideo(trailer.videoId);
-        } else if (opening?.found && opening.videoId) {
-          setSelectedVideo(opening.videoId);
-        } else if (episode?.found && episode.videoId) {
-          setSelectedVideo(episode.videoId);
-        }
       } catch (error) {
         console.error("Erreur recherche YouTube:", error);
       } finally {
@@ -79,7 +84,7 @@ export default function YouTubeVideosSection({
     }
 
     fetchYouTubeVideos();
-  }, [effectiveTitle]); // Dépend de la variable composite
+  }, [effectiveTitle, animeId]);
 
   const videos = [
     {
@@ -87,192 +92,291 @@ export default function YouTubeVideosSection({
       data: trailerData,
       icon: Film,
       label: "Trailer",
-      color: "from-red-500 to-pink-500",
-      bgColor: "bg-red-50 dark:bg-red-500/10",
-      borderColor: "border-red-200 dark:border-red-500/20",
+      bgGradient: "bg-gradient-to-br from-red-500 to-pink-500",
     },
     {
       id: "opening",
       data: openingData,
       icon: Music,
       label: "Opening 1",
-      color: "from-purple-500 to-indigo-500",
-      bgColor: "bg-purple-50 dark:bg-purple-500/10",
-      borderColor: "border-purple-200 dark:border-purple-500/20",
+      bgGradient: "bg-gradient-to-br from-purple-500 to-indigo-500",
     },
     {
       id: "episode",
       data: episodeData,
       icon: Tv,
       label: "Épisode 1",
-      color: "from-blue-500 to-cyan-500",
-      bgColor: "bg-blue-50 dark:bg-blue-500/10",
-      borderColor: "border-blue-200 dark:border-blue-500/20",
+      bgGradient: "bg-gradient-to-br from-blue-500 to-cyan-500",
     },
   ];
 
   const availableVideos = videos.filter((v) => v.data?.found && v.data.videoId);
 
+  const currentIndex = availableVideos.findIndex(
+    (v) => v.data?.videoId === selectedVideo
+  );
+  const canGoPrev = currentIndex > 0;
+  const canGoNext = currentIndex < availableVideos.length - 1;
+
+  const goToPrev = () => {
+    if (canGoPrev)
+      setSelectedVideo(availableVideos[currentIndex - 1].data!.videoId!);
+  };
+
+  const goToNext = () => {
+    if (canGoNext)
+      setSelectedVideo(availableVideos[currentIndex + 1].data!.videoId!);
+  };
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showFullPlayer) setShowFullPlayer(false);
+    };
+
+    if (showFullPlayer) {
+      document.addEventListener("keydown", handleEscape);
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.body.style.overflow = "unset";
+    };
+  }, [showFullPlayer]);
+
   if (loading) {
     return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 shadow-xl border border-slate-200 dark:border-slate-700">
-               {" "}
-        <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                   {" "}
-          <span className="ml-3 text-slate-600 dark:text-slate-400 font-semibold">
-                        Recherche de vidéos...          {" "}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xl border border-slate-200 dark:border-slate-700"
+      >
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500 animate-spin" />
+          <span className="ml-3 text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
+            Recherche de vidéos...
           </span>
-                 {" "}
         </div>
-             {" "}
-      </div>
+      </motion.div>
     );
   }
 
   if (availableVideos.length === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.4 }}
-      className="bg-white dark:bg-slate-900 rounded-2xl p-8 shadow-xl border border-slate-200 dark:border-slate-700"
-    >
-           {" "}
-      <div className="flex items-center gap-3 mb-6">
-               {" "}
-        <div className="p-3 bg-gradient-to-br from-red-500 to-pink-500 rounded-xl">
-                    <Play className="w-6 h-6 text-white" />       {" "}
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xl border border-slate-200 dark:border-slate-700"
+      >
+        {/* Header */}
+        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
+          <div className="p-2 sm:p-2.5 bg-gradient-to-br from-red-500 to-pink-500 rounded-lg sm:rounded-xl shadow-lg">
+            <Play className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+          </div>
+          <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-800 dark:text-white">
+            Vidéos
+          </h2>
         </div>
-               {" "}
-        <h2 className="text-3xl font-black text-slate-800 dark:text-white">
-                    Vidéos        {" "}
-        </h2>
-               {" "}
-        {availableVideos.length > 0 && selectedVideo && (
-          <span className="ml-auto text-sm font-medium text-slate-500 dark:text-slate-400">
-                       {" "}
-            {availableVideos.findIndex(
-              (v) => v.data?.videoId === selectedVideo
-            ) + 1}{" "}
-            / {availableVideos.length}         {" "}
-          </span>
-        )}
-             {" "}
-      </div>
-            {/* Player */}     {" "}
-      <AnimatePresence mode="wait">
-               {" "}
-        {selectedVideo && (
+
+        {/* Grid de vidéos */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          {availableVideos.map((video, index) => {
+            const vid = video.data!;
+            const thumbnail =
+              vid.thumbnail ||
+              `https://img.youtube.com/vi/${vid.videoId}/mqdefault.jpg`;
+
+            return (
+              <motion.button
+                key={video.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 + index * 0.1 }}
+                onClick={() => {
+                  setSelectedVideo(vid.videoId!);
+                  setShowFullPlayer(true);
+                }}
+                className="group relative overflow-hidden rounded-xl border-2 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-all hover:shadow-lg active:scale-95 touch-manipulation"
+              >
+                <div className="relative aspect-video">
+                  <img
+                    src={thumbnail}
+                    alt={vid.title || video.label}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div
+                      className={`p-3 sm:p-4 rounded-full ${video.bgGradient} shadow-2xl transform group-hover:scale-110 group-active:scale-100 transition-transform`}
+                    >
+                      <video.icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                    </div>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 p-2.5 sm:p-3">
+                    <h3 className="font-bold text-white text-sm sm:text-base mb-0.5 drop-shadow-lg">
+                      {video.label}
+                    </h3>
+                    <p className="text-xs text-white/90 line-clamp-1 drop-shadow-md">
+                      {vid.title}
+                    </p>
+                  </div>
+                </div>
+              </motion.button>
+            );
+          })}
+        </div>
+        <p className="mt-3 sm:mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">
+          Appuyez pour regarder • Échap pour fermer
+        </p>
+      </motion.div>
+
+      {/* Modal Player */}
+      <AnimatePresence>
+        {showFullPlayer && selectedVideo && (
           <motion.div
-            key={selectedVideo} // Ajout de la clé pour forcer la ré-animation
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3 }}
-            className="overflow-hidden mb-6"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black flex flex-col"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowFullPlayer(false);
+            }}
           >
-                       {" "}
-            <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-2xl border-4 border-slate-200 dark:border-slate-700">
-                           {" "}
-              <iframe
-                src={`https://www.youtube.com/embed/${selectedVideo}?autoplay=1`}
-                allow="autoplay; encrypted-media"
-                allowFullScreen
-                className="w-full h-full"
-              />
-                         {" "}
+            <motion.div
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -20, opacity: 0 }}
+              className="flex items-center justify-between p-3 sm:p-4 bg-black/50 backdrop-blur-sm border-b border-white/10"
+            >
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button
+                  onClick={goToPrev}
+                  disabled={!canGoPrev}
+                  className={`p-2 rounded-lg transition-all ${
+                    canGoPrev
+                      ? "bg-white/10 hover:bg-white/20 text-white"
+                      : "bg-white/5 text-white/30 cursor-not-allowed"
+                  }`}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={goToNext}
+                  disabled={!canGoNext}
+                  className={`p-2 rounded-lg transition-all ${
+                    canGoNext
+                      ? "bg-white/10 hover:bg-white/20 text-white"
+                      : "bg-white/5 text-white/30 cursor-not-allowed"
+                  }`}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="text-white/80 text-sm font-medium">
+                {currentIndex + 1} / {availableVideos.length}
+              </div>
+              <button
+                onClick={() => setShowFullPlayer(false)}
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-white touch-manipulation"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </motion.div>
+
+            <div className="flex-1 flex items-center justify-center p-2 sm:p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ type: "spring", damping: 25 }}
+                className="w-full max-w-7xl"
+              >
+                <div className="relative w-full aspect-video rounded-lg sm:rounded-2xl overflow-hidden shadow-2xl border-2 sm:border-4 border-white/10">
+                  <iframe
+                    src={`https://www.youtube.com/embed/${selectedVideo}?autoplay=1&rel=0&modestbranding=1`}
+                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                    allowFullScreen
+                    className="w-full h-full"
+                  />
+                </div>
+              </motion.div>
             </div>
-                     {" "}
+
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              className="p-3 sm:p-4 bg-black/50 backdrop-blur-sm border-t border-white/10"
+            >
+              <div className="mb-3 sm:mb-4">
+                {availableVideos.map((video) => {
+                  if (video.data?.videoId === selectedVideo) {
+                    return (
+                      <div key={video.id} className="text-white">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div
+                            className={`p-1.5 rounded-lg ${video.bgGradient}`}
+                          >
+                            <video.icon className="w-4 h-4 text-white" />
+                          </div>
+                          <span className="font-bold text-sm sm:text-base">
+                            {video.label}
+                          </span>
+                        </div>
+                        <p className="text-sm sm:text-base text-white/90 line-clamp-2 mb-1">
+                          {video.data.title}
+                        </p>
+                        {video.data.channelTitle && (
+                          <p className="text-xs sm:text-sm text-white/60">
+                            {video.data.channelTitle}
+                          </p>
+                        )}
+                        {video.data.fromCache && (
+                          <p className="text-xs sm:text-sm text-white/40 italic">
+                            Depuis le cache ({video.data.table})
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                {availableVideos.map((video) => {
+                  const isActive = video.data?.videoId === selectedVideo;
+                  if (isActive) return null;
+
+                  return (
+                    <button
+                      key={video.id}
+                      onClick={() => setSelectedVideo(video.data!.videoId!)}
+                      className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm font-medium transition-all touch-manipulation"
+                    >
+                      <video.icon className="w-4 h-4" />
+                      <span className="hidden sm:inline">{video.label}</span>
+                    </button>
+                  );
+                })}
+                <a
+                  href={`https://www.youtube.com/watch?v=${selectedVideo}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition-all text-sm shadow-lg ml-auto touch-manipulation"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>YouTube</span>
+                </a>
+              </div>
+            </motion.div>
           </motion.div>
         )}
-             {" "}
       </AnimatePresence>
-            {/* Vidéo grid */}     {" "}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-               {" "}
-        {availableVideos.map((video) => {
-          const vid = video.data!;
-          const isSelected = vid.videoId === selectedVideo;
-          const thumbnail =
-            vid.thumbnail ||
-            `https://img.youtube.com/vi/${vid.videoId}/hqdefault.jpg`;
-
-          return (
-            <motion.button
-              key={video.id}
-              onClick={() => setSelectedVideo(vid.videoId!)}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className={`relative overflow-hidden rounded-xl border-4 transition-all hover:shadow-lg group text-left
-                ${
-                isSelected
-                  ? "border-red-500 shadow-xl"
-                  : `${video.borderColor} ${video.bgColor}`
-              }`}
-            >
-                           {" "}
-              <div className="aspect-video relative">
-                               {" "}
-                <img
-                  src={thumbnail}
-                  alt={vid.title || video.label}
-                  className="w-full h-full object-cover"
-                />
-                               {" "}
-                <div className="absolute inset-0 bg-black/40 group-hover:bg-black/60 transition-all flex items-center justify-center">
-                                   {" "}
-                  <div
-                    className={`p-4 rounded-full bg-gradient-to-br ${
-                      video.color
-                    } shadow-2xl group-hover:scale-110 transition-transform ${
-                      isSelected ? "scale-110" : ""
-                    }`}
-                  >
-                                       {" "}
-                    <video.icon className="w-8 h-8 text-white" />               
-                     {" "}
-                  </div>
-                                 {" "}
-                </div>
-                             {" "}
-              </div>
-                           {" "}
-              <div className="p-4">
-                               {" "}
-                <h3 className="font-bold text-slate-800 dark:text-white mb-1 line-clamp-1">
-                                    {video.label}               {" "}
-                </h3>
-                               {" "}
-                <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-                                    {vid.title}               {" "}
-                </p>
-                             {" "}
-              </div>
-                         {" "}
-            </motion.button>
-          );
-        })}
-             {" "}
-      </div>
-           {" "}
-      {selectedVideo && (
-        <div className="flex items-center justify-end mt-4">
-                   {" "}
-          <a
-            href={`https://www.youtube.com/watch?v=${selectedVideo}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition-all text-sm"
-          >
-                        <ExternalLink className="w-4 h-4" />            Ouvrir
-            sur YouTube          {" "}
-          </a>
-                 {" "}
-        </div>
-      )}
-         {" "}
-    </motion.div>
+    </>
   );
 }

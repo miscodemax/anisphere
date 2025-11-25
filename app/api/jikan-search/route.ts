@@ -13,7 +13,7 @@ export async function GET(req: Request) {
 
     // 🔥 1) Recherche JIKAN
     const jikanRes = await fetch(
-      `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=15`
+      `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=20`
     );
 
     const jikanData = await jikanRes.json();

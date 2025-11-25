@@ -40,14 +40,18 @@ interface Anime {
   trailer_url?: string | null;
 }
 
-const SimilarAnimeCard = ({
-  anime,
-  demographic,
-}: {
-  anime: Anime;
-  demographic: string;
-}) => {
+const SimilarAnimeCard = ({ anime }: { anime: Anime; demographic: string }) => {
   const router = useRouter();
+
+  let demographicQuery = "general";
+
+  if (anime.demographic) {
+    demographicQuery = anime.demographic;
+  } else if (anime.status == "Not yet aired") {
+    demographicQuery = "nouveautes";
+  } else {
+    demographicQuery = "general";
+  }
 
   // NOUVELLE LOGIQUE : DÉDUCTION DU PATH TYPE (anime ou manga)
   let pathType: "anime" | "manga";
@@ -72,7 +76,7 @@ const SimilarAnimeCard = ({
   }
 
   // Construction dynamique de l'URL
-  const dynamicHref = `/${pathType}/${anime.id}?demographic=${demographic}`;
+  const dynamicHref = `/${pathType}/${anime.id}?demographic=${demographicQuery}`;
 
   return (
     <motion.div

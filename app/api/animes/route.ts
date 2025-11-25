@@ -17,7 +17,9 @@ export async function GET() {
     const { data, error } = await supabase
       .from(table)
       .select("*")
-      .order("score", { ascending: false }); // Tri par score pour optimiser
+      .limit(30000) // Tri par score pour optimiser
+
+      .order("score", { ascending: false });
 
     if (error) {
       console.error(`Erreur table ${table}:`, error);
@@ -33,9 +35,8 @@ export async function GET() {
   // Combine et décompresse
   const allAnimes = results.flat().map((a) => ({
     ...a,
-    description: decompressBase64(a.description),
+    description: decompressBase64(a.description_fr),
     background: decompressBase64(a.background),
-    description_fr: decompressBase64(a.description_fr),
     genres: Array.isArray(a.genres) ? a.genres : [],
     themes: Array.isArray(a.themes) ? a.themes : [],
     studios: Array.isArray(a.studios) ? a.studios : [],

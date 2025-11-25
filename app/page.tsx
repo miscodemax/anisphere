@@ -52,6 +52,7 @@ interface MangaFeed {
   seinen: Item[];
   josei: Item[];
   recent: Item[];
+  manhwa: Item[];
 }
 
 // ==================== UTILS ET SKELETON ====================
@@ -137,7 +138,7 @@ const MangaSwiperFeed = ({
           ) : items.length > 0 ? (
             items.map((item, index) => (
               <SwiperSlide key={item.id}>
-                <CardComponent anime={item} index={index} />
+                <AnimeCard anime={item} index={index} />
               </SwiperSlide>
             ))
           ) : (
@@ -240,7 +241,7 @@ export default function HomePage() {
         }
       } catch (err) {}
 
-      if (!finalDescription) {
+      if (!item.description_fr) {
         try {
           const decodedEn = decompressBase64(item.description);
           finalDescription = decodedEn || item.description || "";
@@ -330,7 +331,7 @@ export default function HomePage() {
         const { data, error } = await supabase
           .from(selectedCategory)
           .select("*")
-          .limit(20000)
+          .limit(10000)
           .order("start_date", { ascending: false, nullsFirst: false })
           .order("members", { ascending: false });
 

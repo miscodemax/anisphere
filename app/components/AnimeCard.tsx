@@ -140,36 +140,6 @@ export default function AnimeCard({
           {/* Gradient Overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-300" />
 
-          {/* Top Badges Row */}
-          <div className="absolute top-3 left-3 right-3 flex items-start justify-between gap-2 z-10">
-            {/* VF Badge (probablement seulement pour anime, mais gardé pour la complétude) */}
-            {anime.is_french && (
-              <motion.div
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ delay: index * 0.03 + 0.2, type: "spring" }}
-                className="bg-gradient-to-r from-indigo-500 to-purple-500 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-black text-white shadow-lg uppercase tracking-wider border border-white/20"
-              >
-                VF
-              </motion.div>
-            )}
-
-            {/* Score Badge */}
-            {anime.score > 0 && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: index * 0.03 + 0.3, type: "spring" }}
-                className="ml-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xl border border-slate-200 dark:border-slate-700"
-              >
-                <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                <span className="text-xs font-black text-slate-800 dark:text-white">
-                  {anime.score.toFixed(1)}
-                </span>
-              </motion.div>
-            )}
-          </div>
-
           {/* Status Badge Bottom Left */}
           {anime.status && (
             <div

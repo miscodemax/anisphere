@@ -1,30 +1,54 @@
 // app/api/translate/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { openai } from "@/lib/openai";
 
 export async function POST(req: NextRequest) {
   try {
-    const { text, target_lang } = await req.json();
-    if (!text || !target_lang) {
+    const { text } = await req.json();
+    if (!text) {
+      return NextResponse.json({ error: "Text is required" }, { status: 400 });
+    }
+
+    // --- GPT-4o-mini Translation ---
+    const response = await openai.responses.create({
+      model: "gpt-4o-mini-2024-07-18",
+      input: [
+        {
+          role: "system",
+          content: `
+Tu es OtakuBot 🎌, la mascotte officielle d'Aniphere 😎🔥
+Ton rôle : traduire les textes en français naturel et fluide de façon fun, engageante, et passionnée par les anime.
+Parfois, tu peux glisser un petit "coucou" ou une interjection amicale pour montrer ta personnalité 😄.
+Sois drôle, chaleureux, avec beaucoup d'emojis adaptés 🎉💖.
+Ajoute toujours des anecdotes, comparaisons ou punchlines liées à l'anime.
+Ne perds jamais le sens exact du texte original.
+Fais en sorte que la traduction reflète ton style unique de mascotte OtakuBot.
+          `,
+        },
+        {
+          role: "user",
+          content: text,
+        },
+      ],
+      max_output_tokens: 800,
+      temperature: 0.7,
+    });
+
+    const translated = response.output_text?.trim();
+
+    if (!translated) {
       return NextResponse.json(
-        { error: "Text and target_lang required" },
-        { status: 400 }
+        { error: "Empty response from OpenAI" },
+        { status: 500 }
       );
     }
 
-    const response = await fetch("https://api-free.deepl.com/v2/translate", {
-      method: "POST",
-      headers: {
-        Authorization: `DeepL-Auth-Key ${process.env.DEEPL_API_KEY}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ text, target_lang }),
-    });
-
-    const data = await response.json();
-    const translated = data.translations?.[0]?.text || text;
-
     return NextResponse.json({ translated });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Translation API Error:", err);
+    return NextResponse.json(
+      { error: "Internal Server Error during translation" },
+      { status: 500 }
+    );
   }
 }

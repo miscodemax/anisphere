@@ -8,6 +8,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import YouTubePlayer from "@/app/components/YoutubePlayer";
 import YouTubeVideosSection from "@/app/components/YoutubeVideosSection";
+import RelatedWorksSection from "@/app/components/RelatedWorkSection";
 // 💡 L'IMPORTATION EST DÉJÀ PRÉSENTE
 import AnimeDescriptionTTS from "@/app/components/AnimeDescriptionTts";
 import SimilarAnimeCard from "@/app/components/SimilarAnimeCard";
@@ -43,7 +44,6 @@ interface Anime {
   image_url: string | null;
   description: string | null;
   description_fr: string | null;
-  background?: string | null;
   score: number | null;
   scored_by?: number | null;
   rank?: number | null;
@@ -139,7 +139,6 @@ export default function AnimeDetailsPage() {
         let anime = data as Anime;
         let descriptionFr: string | null = null;
         let descriptionEn: string | null = null;
-        let backgroundText: string | null = null;
 
         // Décompression description
         try {
@@ -151,6 +150,7 @@ export default function AnimeDetailsPage() {
           descriptionEn = anime.description || "";
         }
 
+        // Décompression description_fr
         if (anime.description_fr) {
           try {
             descriptionFr = decompressBase64(anime.description_fr);
@@ -159,55 +159,75 @@ export default function AnimeDetailsPage() {
           }
         }
 
-        // Décompression background
-        if (anime.background) {
-          try {
-            backgroundText = decompressBase64(anime.background);
-          } catch {
-            backgroundText = anime.background;
-          }
-        }
-
         // Traduction si nécessaire
         const needsTranslation = !descriptionFr && descriptionEn;
+        // ... (Code précédent inchangé)
+
+        // Traduction si nécessaire
 
         if (needsTranslation) {
           setTranslationInProgress(true);
           try {
+            console.log("🌍 Début de la traduction...");
+
+            // Appel à l'API OpenAI
             const res = await fetch("/api/translate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: descriptionEn,
-                target_lang: "FR",
-              }),
+              body: JSON.stringify({ text: descriptionEn }),
             });
 
             if (res.ok) {
               const json = await res.json();
               const translatedText = json.translated || descriptionEn;
+
+              // On compresse avant d'envoyer
               const compressedFr = compressToBase64(translatedText);
 
-              await supabase
+              console.log(
+                `💾 Tentative de sauvegarde dans ${TABLE_NAME} pour ID: ${anime.id}`
+              );
+
+              // Stockage de la traduction dans Supabase AVEC vérification d'erreur
+              const { error: updateError } = await supabase
                 .from(TABLE_NAME)
                 .update({ description_fr: compressedFr })
                 .eq("id", anime.id);
 
-              descriptionFr = translatedText;
+              console.log(TABLE_NAME);
+
+              if (updateError) {
+                console.error(
+                  "❌ ERREUR SAUVEGARDE SUPABASE :",
+                  updateError.message
+                );
+                // Optionnel : Tu peux afficher un toast d'erreur ici
+              } else {
+                console.log(
+                  "✅ Traduction enregistrée avec succès dans la BDD !"
+                );
+                descriptionFr = translatedText; // Mise à jour locale pour l'affichage immédiat
+              }
+            } else {
+              console.error("❌ Erreur API Traduction:", res.statusText);
             }
           } catch (err) {
-            console.error("Erreur traduction:", err);
+            console.error(
+              "❌ Exception durant le processus de traduction:",
+              err
+            );
           } finally {
             setTranslationInProgress(false);
           }
         }
 
+        // ... (Reste du code inchangé)
         const finalDescription = descriptionFr || descriptionEn;
 
         setAnimeData({
           ...anime,
           description: finalDescription,
-          background: backgroundText,
+          table: TABLE_NAME,
         });
 
         // Fetch animes similaires
@@ -215,10 +235,9 @@ export default function AnimeDetailsPage() {
           .from(TABLE_NAME)
           .select("*")
           .neq("id", animeId)
-          .limit(12);
+          .limit(30);
 
         if (similarData) {
-          // Filtrer par genres/themes similaires
           const currentGenres = anime.genres || [];
           const currentThemes = anime.themes || [];
 
@@ -257,7 +276,7 @@ export default function AnimeDetailsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20 flex items-center justify-center">
+      <div className="min-h-screen from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-lg font-semibold text-slate-600 dark:text-slate-400">
@@ -499,27 +518,11 @@ export default function AnimeDetailsPage() {
             {/* FIN DE LA SECTION SYNOPSIS MISE À JOUR */}
             <YouTubeVideosSection
               animeTitle={animeData.title}
+              animeId={animeData.id}
               animeEnglishTitle={animeData.title_english}
             />
-            {/* Background */}
-            {animeData.background && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-500/5 dark:to-purple-500/5 rounded-2xl p-8 shadow-xl border border-indigo-200/50 dark:border-indigo-500/20"
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <Info className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                  <h3 className="text-2xl font-black text-slate-800 dark:text-white">
-                    Informations supplémentaires
-                  </h3>
-                </div>
-                <p className="text-base leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
-                  {animeData.background}
-                </p>
-              </motion.div>
-            )}
+
+            <RelatedWorksSection currentAnime={animeData} />
 
             {/* Genres & Themes */}
             <motion.div

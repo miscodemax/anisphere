@@ -15,9 +15,9 @@ export default function AnimeSearch() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fermer la dropdown si on clique dehors
+  // Fermer la box si clic extérieur
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
+    function close(e: MouseEvent) {
       if (
         containerRef.current &&
         !containerRef.current.contains(e.target as Node)
@@ -25,11 +25,11 @@ export default function AnimeSearch() {
         setShowBox(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  // Déclenche recherche + debounce
+  // 🔥 Recherche intelligente via API
   useEffect(() => {
     if (!query || query.length < 2) {
       setResults([]);
@@ -40,19 +40,60 @@ export default function AnimeSearch() {
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
-    timeoutRef.current = setTimeout(() => {
-      fetch(`/api/jikan-search?q=${encodeURIComponent(query)}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setResults(data);
-          setShowBox(true);
-        })
-        .finally(() => setLoading(false));
-    }, 300); // debounce 300ms
+    timeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/semantic-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query }),
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+          console.error(data.error);
+          return;
+        }
+
+        setResults(data.results || []);
+        setShowBox(true);
+      } catch (err) {
+        console.error("Erreur recherche semantic:", err);
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
   }, [query]);
 
-  function handleSelect(anime: any) {
-    router.push(anime.linkHref);
+  // 🚀 Correction du switch
+  function openAnime(anime: any) {
+    let demographicQuery = "";
+    switch (anime.source_table) {
+      case "anime_shonen":
+        demographicQuery = "shonen";
+        break;
+
+      case "anime_shoujo":
+        demographicQuery = "shoujo";
+        break;
+
+      case "anime_seinen":
+        demographicQuery = "seinen";
+        break;
+
+      case "anime_nouveautes":
+        demographicQuery = "nouveautes";
+        break;
+
+      case "anime_catalogue_general":
+        demographicQuery = "general";
+        break;
+
+      default:
+        demographicQuery = "";
+    }
+
+    router.push(`/anime/${anime.id}?demographic=${demographicQuery}`);
     setShowBox(false);
   }
 
@@ -62,7 +103,7 @@ export default function AnimeSearch() {
         <Search className="w-4 h-4 text-gray-400" />
         <Input
           className="border-none shadow-none text-black dark:text-blue-200 dark:bg-indigo-950 focus-visible:ring-0"
-          placeholder="Rechercher un anime..."
+          placeholder="Recherche intelligente..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => query.length >= 2 && setShowBox(true)}
@@ -70,27 +111,23 @@ export default function AnimeSearch() {
         {loading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
       </div>
 
-      {/* 🟣 SUGGESTIONS */}
       {showBox && results.length > 0 && (
         <div className="absolute mt-2 w-full bg-white dark:bg-indigo-950 rounded-xl shadow-xl border p-2 z-50 max-h-80 overflow-y-auto">
           {results.map((anime) => (
             <div
               key={anime.id}
-              onClick={() => handleSelect(anime)}
+              onClick={() => openAnime(anime)}
               className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-100 transition"
             >
               <img
-                src={anime.image_url || anime.images?.jpg?.image_url}
+                src={anime.image_url}
                 className="w-12 h-16 object-cover rounded-md"
-                alt={anime.title}
               />
 
               <div className="flex flex-col">
-                <span className="font-semibold text-sm">
-                  {anime.title_english || anime.title}
-                </span>
+                <span className="font-semibold text-sm">{anime.title}</span>
                 <span className="text-xs text-gray-500">
-                  {anime.demographic}
+                  {anime.source_table.replace("anime_", "").toUpperCase()}
                 </span>
               </div>
             </div>
@@ -98,7 +135,6 @@ export default function AnimeSearch() {
         </div>
       )}
 
-      {/* Rien trouvé */}
       {showBox && !loading && results.length === 0 && query.length >= 2 && (
         <div className="absolute mt-2 w-full bg-white rounded-xl shadow-xl border p-2 z-50">
           <p className="text-gray-500 text-sm text-center">
