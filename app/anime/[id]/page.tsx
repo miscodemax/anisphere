@@ -227,7 +227,6 @@ export default function AnimeDetailsPage() {
         setAnimeData({
           ...anime,
           description: finalDescription,
-          table: TABLE_NAME,
         });
 
         // Fetch animes similaires
