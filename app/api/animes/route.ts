@@ -12,21 +12,38 @@ export async function GET() {
     "anime_nouveautes",
   ];
 
-  // Fonction pour récupérer TOUTES les données d'une table (pas de limit)
   async function fetchAllFromTable(table: string) {
-    const { data, error } = await supabase
-      .from(table)
-      .select("*")
-      .limit(30000) // Tri par score pour optimiser
+    const supabase = createClient();
+    const pageSize = 1000;
 
-      .order("score", { ascending: false });
+    let allData: any[] = [];
+    let from = 0;
+    let to = pageSize - 1;
 
-    if (error) {
-      console.error(`Erreur table ${table}:`, error);
-      return [];
+    while (true) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        console.error(`Erreur table ${table}:`, error);
+        break;
+      }
+
+      if (!data || data.length === 0) break;
+
+      allData.push(...data);
+
+      // Si moins que pageSize → fin
+      if (data.length < pageSize) break;
+
+      from += pageSize;
+      to += pageSize;
     }
 
-    return data || [];
+    return allData;
   }
 
   // Récupère TOUT en parallèle
