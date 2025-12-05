@@ -10,7 +10,7 @@ export default function RecommendationPage() {
       </section>
 
       {/* Chatbot réutilisable */}
-      <section className="h-[85vh]">
+      <section className="h-[85vh] w-full">
         <OtakuBot />
       </section>
 

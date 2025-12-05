@@ -43,16 +43,6 @@ interface Anime {
 const SimilarAnimeCard = ({ anime }: { anime: Anime; demographic: string }) => {
   const router = useRouter();
 
-  let demographicQuery = "general";
-
-  if (anime.demographic) {
-    demographicQuery = anime.demographic;
-  } else if (anime.status == "Not yet aired") {
-    demographicQuery = "nouveautes";
-  } else {
-    demographicQuery = "general";
-  }
-
   // NOUVELLE LOGIQUE : DÉDUCTION DU PATH TYPE (anime ou manga)
   let pathType: "anime" | "manga";
 
@@ -76,7 +66,7 @@ const SimilarAnimeCard = ({ anime }: { anime: Anime; demographic: string }) => {
   }
 
   // Construction dynamique de l'URL
-  const dynamicHref = `/${pathType}/${anime.id}?demographic=${demographicQuery}`;
+  const dynamicHref = `/${pathType}/${anime.id}`;
 
   return (
     <motion.div

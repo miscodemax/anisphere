@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createClient } from "@/lib/supabase"; // Assure-toi que ce chemin est bon
+import { createClient } from "@/lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -23,51 +23,60 @@ import AnimeSearch from "./AnimeSearch";
 import { ThemeToggle } from "./ThemeToggle";
 
 export default function Navbar() {
+  /** Hydration safe */
+  const [mounted, setMounted] = useState(false);
+
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
   const [isCatalogueHovered, setIsCatalogueHovered] = useState(false);
 
-  // --- STATE AUTH ---
+  // Auth
   const [user, setUser] = useState<SupabaseUser | null>(null);
+
   const supabase = createClient();
   const pathname = usePathname();
 
-  // --- EFFETS ---
+  /** Mount */
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  /** Toutes les actions dépendant du navigateur */
+  useEffect(() => {
+    if (!mounted) return;
+
+    // Scroll
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
 
-    // Check User Session au chargement
+    // Auth session
     supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
 
-    // Écouteur de changement d'état (Login/Logout)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Auth listener
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      subscription.unsubscribe();
+      data.subscription.unsubscribe();
     };
-  }, []);
+  }, [mounted]);
 
-  // --- HANDLERS ---
+  /** Login */
   const handleLogin = async () => {
-    // Si on est sur la page /login, on renvoie vers l'accueil "/", sinon on reste sur la page actuelle
     const next = pathname === "/login" ? "/" : pathname;
 
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        // On ajoute le paramètre ?next=... à l'URL de callback
         redirectTo: `${window.location.origin}/auth/callback?next=${next}`,
       },
     });
   };
 
+  /** Logout */
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -92,6 +101,27 @@ export default function Navbar() {
 
   const isCatalogueActive = pathname === "/animes" || pathname === "/mangas";
 
+  /** ⛔ Avant mount : on rend une version propre sans dynamique */
+  if (!mounted) {
+    return (
+      <nav className="fixed top-0 left-0 right-0 py-4 z-50 bg-transparent">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2">
+            <div className="w-9 h-9 bg-indigo-600 rounded-xl" />
+            <span className="text-xl font-bold text-white">AniSphere</span>
+          </Link>
+
+          <div className="flex items-center gap-4">
+            {/* Désactivé avant mount */}
+            <ThemeToggle />
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
+  /** Une fois monté → rendu complet */
   return (
     <>
       <motion.nav
@@ -105,7 +135,7 @@ export default function Navbar() {
         }`}
       >
         <div className="max-w-7xl mx-auto text-center px-6 flex items-center justify-between">
-          {/* --- LOGO --- */}
+          {/* Logo */}
           <Link
             href="/"
             className="flex items-center gap-2 group relative z-20"
@@ -118,12 +148,13 @@ export default function Navbar() {
             </span>
           </Link>
 
-          {/* --- DESKTOP NAVIGATION --- */}
+          {/* Desktop Menu */}
           <div className="hidden md:flex items-center gap-6">
             <div className="flex items-center gap-1 bg-[#151f2e]/50 p-1.5 rounded-full border border-white/5 backdrop-blur-sm shadow-inner relative">
               {navLinks.map((link) => {
                 const isActive = pathname === link.href;
                 const isHovered = hoveredPath === link.href;
+
                 return (
                   <Link
                     key={link.href}
@@ -151,11 +182,7 @@ export default function Navbar() {
                         }}
                       />
                     )}
-                    <span
-                      className={`relative z-10 flex items-center gap-2 ${
-                        link.special ? "text-indigo-300 font-bold" : ""
-                      }`}
-                    >
+                    <span className="relative z-10 flex items-center gap-2">
                       {link.icon} {link.name}
                     </span>
                   </Link>
@@ -224,14 +251,14 @@ export default function Navbar() {
               </div>
             </div>
 
-            {/* --- SEARCH DESKTOP --- */}
+            {/* Search Desktop */}
             <div className="hidden md:block">
               <AnimeSearch />
             </div>
 
             <ThemeToggle />
 
-            {/* --- USER / LOGIN LOGIC (DESKTOP) --- */}
+            {/** User */}
             {user ? (
               <div className="flex items-center gap-3">
                 <Link
@@ -272,19 +299,19 @@ export default function Navbar() {
                 <span>Connexion</span>
               </button>
             )}
-
-            {/* MOBILE MENU BUTTON */}
-            <button
-              className="md:hidden p-2 text-slate-300 bg-white/5 rounded-lg"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X /> : <Menu />}
-            </button>
           </div>
+
+          {/* Mobile menu button */}
+          <button
+            className="md:hidden p-2 text-slate-300 bg-white/5 rounded-lg"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            {mobileMenuOpen ? <X /> : <Menu />}
+          </button>
         </div>
       </motion.nav>
 
-      {/* --- MOBILE MENU --- */}
+      {/* Mobile Menu */}
       <AnimatePresence>
         {mobileMenuOpen && (
           <motion.div
@@ -324,7 +351,7 @@ export default function Navbar() {
                 ))}
               </div>
 
-              {/* --- SEARCH MOBILE --- */}
+              {/* Search Mobile */}
               <div className="md:hidden mt-4">
                 <AnimeSearch
                   onSelect={(anime) => {
@@ -338,7 +365,7 @@ export default function Navbar() {
 
               <div className="h-px bg-white/10 my-2" />
 
-              {/* --- USER LOGIC (MOBILE) --- */}
+              {/* User */}
               {user ? (
                 <>
                   <Link

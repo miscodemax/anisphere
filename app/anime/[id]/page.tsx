@@ -1,15 +1,13 @@
-// components/AnimeDetailsPage.tsx (Code Complet)
 "use client";
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
 import { decompressBase64, compressToBase64 } from "@/utils/compress";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation"; // useSearchParams retiré
 import { motion, AnimatePresence } from "framer-motion";
 import YouTubePlayer from "@/app/components/YoutubePlayer";
 import YouTubeVideosSection from "@/app/components/YoutubeVideosSection";
 import RelatedWorksSection from "@/app/components/RelatedWorkSection";
-// 💡 L'IMPORTATION EST DÉJÀ PRÉSENTE
 import AnimeDescriptionTTS from "@/app/components/AnimeDescriptionTts";
 import SimilarAnimeCard from "@/app/components/SimilarAnimeCard";
 import {
@@ -32,8 +30,13 @@ import {
   Heart,
   Share2,
   BookOpen,
-  Volume2, // Ajouté pour les composants
+  Volume2,
 } from "lucide-react";
+
+// ==================== CONFIGURATION DE LA TABLE UNIQUE ====================
+// ANCIENNEMENT: getTableNameFromDemographic
+// NOUVEAU: Constante pour la table unique 'anime_all'
+const SINGLE_TABLE_NAME = "anime_all";
 
 // ==================== TYPES ====================
 interface Anime {
@@ -65,41 +68,22 @@ interface Anime {
   studios?: string[];
   producers?: string[];
   licensors?: string[];
-  demographic?: string;
+  // demographic a été retiré, mais il est gardé pour la démo si besoin
+  // mais la colonne n'est plus dans le type car elle n'est plus pertinente pour le fetch
+  // demographic?: string;
   trailer_url?: string | null;
+  // Ajout de 'table' temporaire pour la traduction, même si c'est la seule table
+  table?: string;
 }
-
-// Fonction pour déterminer la table
-const getTableNameFromDemographic = (demographic: string): string => {
-  const map: Record<string, string> = {
-    shonen: "anime_shonen",
-    shoujo: "anime_shoujo",
-    seinen: "anime_seinen",
-    josei: "anime_josei",
-    nouveautes: "anime_nouveautes",
-    // AJOUT: Support pour la table générale
-    general: "anime_catalogue_general",
-  };
-  // Utilise la table générale par défaut si la démographie n'est pas mappée
-  return map[demographic] || "anime_catalogue_general";
-};
-// Extraire l'ID YouTube d'une URL
-const getYouTubeId = (url: string | null): string | null => {
-  if (!url) return null;
-  const match = url.match(
-    /(?:youtube\.com\/.*[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/
-  );
-  return match ? match[1] : null;
-};
 
 // ==================== PAGE PRINCIPALE ====================
 export default function AnimeDetailsPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
+  // const searchParams = useSearchParams(); // Retiré car demographic n'est plus nécessaire
   const router = useRouter();
 
   const animeId = params.id as string;
-  const animeDemographic = searchParams.get("demographic") || "nouveautes";
+  // const animeDemographic = searchParams.get("demographic") || "nouveautes"; // Retiré
 
   const [animeData, setAnimeData] = useState<Anime | null>(null);
   const [similarAnimes, setSimilarAnimes] = useState<Anime[]>([]);
@@ -111,12 +95,13 @@ export default function AnimeDetailsPage() {
   const youtubeId = animeData?.trailer_url || null;
 
   useEffect(() => {
-    if (!animeId || !animeDemographic) {
+    if (!animeId) {
       setLoading(false);
       return;
     }
 
-    const TABLE_NAME = getTableNameFromDemographic(animeDemographic);
+    // Le nom de la table est désormais fixe
+    const TABLE_NAME = SINGLE_TABLE_NAME;
     const supabase = createClient();
 
     async function fetchData() {
@@ -125,7 +110,7 @@ export default function AnimeDetailsPage() {
       try {
         // Fetch anime principal
         const { data, error } = await supabase
-          .from(TABLE_NAME)
+          .from(TABLE_NAME) // Utilisation de la table unique
           .select("*")
           .eq("id", animeId)
           .single();
@@ -161,9 +146,6 @@ export default function AnimeDetailsPage() {
 
         // Traduction si nécessaire
         const needsTranslation = !descriptionFr && descriptionEn;
-        // ... (Code précédent inchangé)
-
-        // Traduction si nécessaire
 
         if (needsTranslation) {
           setTranslationInProgress(true);
@@ -194,14 +176,11 @@ export default function AnimeDetailsPage() {
                 .update({ description_fr: compressedFr })
                 .eq("id", anime.id);
 
-              console.log(TABLE_NAME);
-
               if (updateError) {
                 console.error(
                   "❌ ERREUR SAUVEGARDE SUPABASE :",
                   updateError.message
                 );
-                // Optionnel : Tu peux afficher un toast d'erreur ici
               } else {
                 console.log(
                   "✅ Traduction enregistrée avec succès dans la BDD !"
@@ -221,7 +200,6 @@ export default function AnimeDetailsPage() {
           }
         }
 
-        // ... (Reste du code inchangé)
         const finalDescription = descriptionFr || descriptionEn;
 
         setAnimeData({
@@ -232,7 +210,7 @@ export default function AnimeDetailsPage() {
 
         // Fetch animes similaires
         const { data: similarData } = await supabase
-          .from(TABLE_NAME)
+          .from(TABLE_NAME) // Utilisation de la table unique
           .select("*")
           .neq("id", animeId)
           .limit(30);
@@ -272,7 +250,8 @@ export default function AnimeDetailsPage() {
     }
 
     fetchData();
-  }, [animeId, animeDemographic]);
+    // Suppression de animeDemographic de la dépendance
+  }, [animeId]);
 
   if (loading) {
     return (
@@ -474,6 +453,38 @@ export default function AnimeDetailsPage() {
         </div>
       </div>
 
+      {/* Trailer Modal */}
+      <AnimatePresence>
+        {showTrailer && youtubeId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowTrailer(false)}
+            className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 50 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-4xl aspect-video"
+            >
+              <button
+                onClick={() => setShowTrailer(false)}
+                className="absolute -top-12 right-0 p-2 text-white hover:text-red-500 transition-colors"
+              >
+                <X className="w-8 h-8" />
+              </button>
+              <YouTubePlayer
+                videoId={youtubeId}
+                onClose={() => setShowTrailer(false)} // 👈 AJOUT DE ONCLOSE ICI
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-12">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -497,7 +508,10 @@ export default function AnimeDetailsPage() {
                   </h2>
                 </div>
                 {/* Intégration du composant TTS ici */}
-                <AnimeDescriptionTTS text={animeData.description} />
+                <AnimeDescriptionTTS
+                  text={animeData.description}
+                  animeId={animeData.id}
+                />
               </div>
 
               {translationInProgress && (
@@ -516,6 +530,7 @@ export default function AnimeDetailsPage() {
               </p>
             </motion.div>
             {/* FIN DE LA SECTION SYNOPSIS MISE À JOUR */}
+
             <YouTubeVideosSection
               animeTitle={animeData.title}
               animeId={animeData.id}
@@ -736,7 +751,7 @@ export default function AnimeDetailsPage() {
                 >
                   <SimilarAnimeCard
                     anime={anime}
-                    demographic={animeDemographic}
+                    demographic={anime.demographic || "all"}
                   />
                 </motion.div>
               ))}
@@ -744,26 +759,6 @@ export default function AnimeDetailsPage() {
           </motion.div>
         )}
       </div>
-
-      {/* YouTube Trailer Modal */}
-      <AnimatePresence>
-        {showTrailer && youtubeId && (
-          <YouTubePlayer
-            videoId={youtubeId}
-            onClose={() => setShowTrailer(false)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Footer */}
-      {/* <footer className="mt-16 py-8 border-t border-slate-200 dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 text-center">
-          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-            Fait avec <span className="text-red-500">❤️</span> pour les fans
-            d'anime
-          </p>
-        </div>
-      </footer> */}
     </div>
   );
 }

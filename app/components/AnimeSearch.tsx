@@ -15,7 +15,7 @@ export default function AnimeSearch() {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fermer la box si clic extérieur
+  // 🚫 Fermer suggestions si clic extérieur
   useEffect(() => {
     function close(e: MouseEvent) {
       if (
@@ -29,10 +29,11 @@ export default function AnimeSearch() {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
-  // 🔥 Recherche intelligente via API
+  // 🔥 Recherche sémantique
   useEffect(() => {
-    if (!query || query.length < 2) {
+    if (!query || query.trim().length < 2) {
       setResults([]);
+      setShowBox(false);
       return;
     }
 
@@ -45,60 +46,40 @@ export default function AnimeSearch() {
         const res = await fetch("/api/semantic-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query }),
+          body: JSON.stringify({
+            query,
+            matchCount: 12,
+            minSim: 0.35,
+          }),
         });
 
-        const data = await res.json();
-
-        if (data.error) {
-          console.error(data.error);
+        if (!res.ok) {
+          console.error("API Semantic Error:", res.statusText);
+          setResults([]);
           return;
         }
+
+        const data = await res.json();
 
         setResults(data.results || []);
         setShowBox(true);
       } catch (err) {
-        console.error("Erreur recherche semantic:", err);
+        console.error("Erreur semantic-search:", err);
       } finally {
         setLoading(false);
       }
-    }, 400);
+    }, 350);
   }, [query]);
 
-  // 🚀 Correction du switch
+  // 🚀 Aller à la page anime
   function openAnime(anime: any) {
-    let demographicQuery = "";
-    switch (anime.source_table) {
-      case "anime_shonen":
-        demographicQuery = "shonen";
-        break;
-
-      case "anime_shoujo":
-        demographicQuery = "shoujo";
-        break;
-
-      case "anime_seinen":
-        demographicQuery = "seinen";
-        break;
-
-      case "anime_nouveautes":
-        demographicQuery = "nouveautes";
-        break;
-
-      case "anime_catalogue_general":
-        demographicQuery = "general";
-        break;
-
-      default:
-        demographicQuery = "";
-    }
-
-    router.push(`/anime/${anime.id}?demographic=${demographicQuery}`);
+    router.push(`/anime/${anime.id}`);
     setShowBox(false);
   }
 
   return (
     <div className="relative w-full max-w-md" ref={containerRef}>
+      {/* Input */}
       <div className="flex items-center gap-2 bg-white dark:bg-indigo-950 rounded-xl border px-3 py-2 shadow-sm">
         <Search className="w-4 h-4 text-gray-400" />
         <Input
@@ -111,13 +92,14 @@ export default function AnimeSearch() {
         {loading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
       </div>
 
+      {/* Suggestions */}
       {showBox && results.length > 0 && (
         <div className="absolute mt-2 w-full bg-white dark:bg-indigo-950 rounded-xl shadow-xl border p-2 z-50 max-h-80 overflow-y-auto">
           {results.map((anime) => (
             <div
               key={anime.id}
               onClick={() => openAnime(anime)}
-              className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-100 transition"
+              className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-indigo-900 transition"
             >
               <img
                 src={anime.image_url}
@@ -126,18 +108,30 @@ export default function AnimeSearch() {
 
               <div className="flex flex-col">
                 <span className="font-semibold text-sm">{anime.title}</span>
-                <span className="text-xs text-gray-500">
-                  {anime.source_table.replace("anime_", "").toUpperCase()}
-                </span>
+
+                {/* Similarité */}
+                {anime.similarity && (
+                  <span className="text-xs text-gray-500 dark:text-gray-300">
+                    Similarité: {(anime.similarity * 100).toFixed(1)}%
+                  </span>
+                )}
+
+                {/* Année */}
+                {anime.year && (
+                  <span className="text-xs text-gray-500 dark:text-gray-300">
+                    {anime.year}
+                  </span>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Aucun résultat */}
       {showBox && !loading && results.length === 0 && query.length >= 2 && (
-        <div className="absolute mt-2 w-full bg-white rounded-xl shadow-xl border p-2 z-50">
-          <p className="text-gray-500 text-sm text-center">
+        <div className="absolute mt-2 w-full bg-white dark:bg-indigo-950 rounded-xl shadow-xl border p-2 z-50">
+          <p className="text-gray-500 dark:text-gray-300 text-sm text-center">
             Aucun anime trouvé
           </p>
         </div>

@@ -6,7 +6,15 @@ import { Layers, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
 
-// Convert embedding into array
+// Normalisation utils (mêmes que ton OtakuBot)
+function normalize(v: number | null, max: number) {
+  if (!v || v <= 0) return 0;
+  return Math.min(v / max, 1);
+}
+function clamp01(v: number) {
+  return Math.min(Math.max(v, 0), 1);
+}
+
 function toArray(embedding: any): number[] {
   if (!embedding) return [];
   if (Array.isArray(embedding)) return embedding;
@@ -24,44 +32,89 @@ export default function RelatedWorksSection({ currentAnime }) {
       const supabase = createClient();
 
       try {
-        // 1. Fetch embedding for current anime
-        const { data: currentData } = await supabase
+        // 1) Embedding actuel
+        const { data: current } = await supabase
           .from(currentAnime.table)
           .select("embedding")
           .eq("id", currentAnime.id)
           .single();
 
-        if (!currentData?.embedding) {
-          console.error("Embedding manquant pour l’anime courant.");
+        if (!current?.embedding) {
+          console.warn("❌ Aucun embedding pour l'anime courant");
           setLoading(false);
           return;
         }
 
-        const currentEmbedding = toArray(currentData.embedding);
+        const embedding = toArray(current.embedding);
 
-        // 2. RPC call to multi-table search
-        const { data: relatedData, error } = await supabase.rpc(
-          "match_animes_multi_table",
-          {
-            query_embedding: currentEmbedding,
-            match_count: 12,
-          }
-        );
+        // 2) Recherche HNSW
+        const { data, error } = await supabase.rpc("match_all_anime", {
+          query_embedding: embedding,
+          match_count: 25,
+          min_similarity: 0.32, // léger pour laisser rerank trier
+        });
 
         if (error) {
-          console.error("Erreur RPC:", error);
+          console.error("❌ RPC erreur:", error);
           setLoading(false);
           return;
         }
 
-        // 3. Filter out current anime
-        const filtered = (relatedData || []).filter(
-          (a: any) => a.id !== currentAnime.id
+        let candidates =
+          data?.map((a: any) => ({
+            id: a.id,
+            title: a.title,
+            image_url: a.image_url,
+            similarity: a.cosine_score,
+            score: a.score,
+            popularity: a.popularity,
+            year: a.year,
+            url: `/anime/${a.id}`,
+          })) || [];
+
+        // 3) Remove current anime
+        candidates = candidates.filter((a) => a.id !== currentAnime.id);
+
+        // 4) Déduplication au cas où (rare mais propre)
+        const unique = new Map();
+        for (const a of candidates) unique.set(a.id, a);
+        candidates = Array.from(unique.values());
+
+        // 5) Anti-daubes
+        candidates = candidates.filter((a) => {
+          if (a.score !== null && a.score < 6.5) return false;
+          if (a.popularity && a.popularity > 50000) return false;
+          return true;
+        });
+
+        // 6) Rerank hybride
+        const maxPopularity = Math.max(
+          ...candidates.map((a) => a.popularity || 1)
         );
 
-        setRelatedWorks(filtered);
+        candidates = candidates.map((a) => {
+          const sim = clamp01(a.similarity);
+          const malNorm = normalize(a.score, 10);
+          const popNorm =
+            a.popularity && maxPopularity
+              ? 1 - a.popularity / maxPopularity
+              : 0.5;
+          const yearNorm =
+            a.year && a.year >= 1990 ? (a.year - 1990) / 35 : 0.2;
+
+          const final =
+            sim * 0.55 + malNorm * 0.25 + popNorm * 0.15 + yearNorm * 0.05;
+
+          return { ...a, final_score: final };
+        });
+
+        // 7) Sort desc
+        candidates.sort((a, b) => b.final_score - a.final_score);
+
+        // 8) Top 12 final
+        setRelatedWorks(candidates.slice(0, 12));
       } catch (err) {
-        console.error("Erreur fetching related works:", err);
+        console.error("Erreur : ", err);
       } finally {
         setLoading(false);
       }
@@ -104,7 +157,7 @@ export default function RelatedWorksSection({ currentAnime }) {
             </div>
             <div>
               <h2 className="text-2xl sm:text-3xl font-black">Œuvres Liées</h2>
-              <p className="text-sm opacity-70">Saisons, films, OVA et plus</p>
+              <p className="text-sm opacity-70">Recommandées selon cet anime</p>
             </div>
           </div>
 
@@ -114,61 +167,35 @@ export default function RelatedWorksSection({ currentAnime }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {relatedWorks.map((anime: any, index: number) => {
-            // 🟣 Fix : mapping des tables → query param
-            let demographicQuery = "";
-            switch (anime.source_table) {
-              case "anime_shonen":
-                demographicQuery = "shonen";
-                break;
-              case "anime_shoujo":
-                demographicQuery = "shoujo";
-                break;
-              case "anime_seinen":
-                demographicQuery = "seinen";
-                break;
-              case "anime_nouveautes":
-                demographicQuery = "nouveautes";
-                break;
-              case "anime_catalogue_general":
-                demographicQuery = "general";
-                break;
-              default:
-                demographicQuery = "";
-            }
-
-            return (
-              <motion.div
-                key={anime.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-              >
-                <Link
-                  href={`/anime/${anime.id}?demographic=${demographicQuery}`}
-                  className="group block"
-                >
-                  <div className="overflow-hidden rounded-xl bg-white dark:bg-slate-800 border hover:scale-105 transition">
-                    <div className="relative aspect-[2/3]">
-                      <img
-                        src={anime.image_url || "/placeholder.png"}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-
-                    <div className="p-3">
-                      <h3 className="font-bold text-sm line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                        {anime.title}
-                      </h3>
-                      {anime.year && (
-                        <p className="text-xs opacity-70">{anime.year}</p>
-                      )}
-                    </div>
+          {relatedWorks.map((anime: any, index: number) => (
+            <motion.div
+              key={anime.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.03 }}
+            >
+              <Link href={anime.url} className="group block">
+                <div className="overflow-hidden rounded-xl bg-white dark:bg-slate-800 border hover:scale-105 transition">
+                  <div className="relative aspect-[2/3]">
+                    <img
+                      src={anime.image_url || "/placeholder.png"}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
-                </Link>
-              </motion.div>
-            );
-          })}
+
+                  <div className="p-3">
+                    <h3 className="font-bold text-sm line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                      {anime.title}
+                    </h3>
+
+                    {anime.year && (
+                      <p className="text-xs opacity-70">{anime.year}</p>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
         </div>
       </div>
     </motion.div>

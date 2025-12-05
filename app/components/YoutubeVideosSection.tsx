@@ -14,15 +14,13 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-interface YouTubeVideo {
+interface YouTubeAPIResponse {
   found: boolean;
   videoId: string | null;
-  title: string | null;
-  thumbnail?: string;
-  channelTitle?: string;
-  publishedAt?: string;
-  fromCache?: boolean;
-  table?: string;
+  saved?: boolean;
+  type?: string;
+  field?: string;
+  id?: number;
 }
 
 interface YouTubeVideosSectionProps {
@@ -36,9 +34,16 @@ export default function YouTubeVideosSection({
   animeId,
   animeEnglishTitle,
 }: YouTubeVideosSectionProps) {
-  const [trailerData, setTrailerData] = useState<YouTubeVideo | null>(null);
-  const [openingData, setOpeningData] = useState<YouTubeVideo | null>(null);
-  const [episodeData, setEpisodeData] = useState<YouTubeVideo | null>(null);
+  const [trailerData, setTrailerData] = useState<YouTubeAPIResponse | null>(
+    null
+  );
+  const [openingData, setOpeningData] = useState<YouTubeAPIResponse | null>(
+    null
+  );
+  const [episodeData, setEpisodeData] = useState<YouTubeAPIResponse | null>(
+    null
+  );
+
   const [loading, setLoading] = useState(true);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
   const [showFullPlayer, setShowFullPlayer] = useState(false);
@@ -51,39 +56,34 @@ export default function YouTubeVideosSection({
       return;
     }
 
-    async function fetchYouTubeVideos() {
+    async function fetchVideos() {
       setLoading(true);
 
       try {
-        const endpoints = ["trailer", "opening", "episode"].map((type) =>
+        const fetchOne = (type: string) =>
           fetch(
-            `/api/youtube-search?title=${encodeURIComponent(
+            `/api/youtube-video?title=${encodeURIComponent(
               effectiveTitle
-            )}&type=${type}&id=${animeId}`
-          )
-        );
-
-        const [trailerRes, openingRes, episodeRes] = await Promise.all(
-          endpoints
-        );
+            )}&type=${type}`
+          ).then((r) => r.json());
 
         const [trailer, opening, episode] = await Promise.all([
-          trailerRes.json(),
-          openingRes.json(),
-          episodeRes.json(),
+          fetchOne("trailer"),
+          fetchOne("opening"),
+          fetchOne("episode1"), // FIX API
         ]);
 
         setTrailerData(trailer);
         setOpeningData(opening);
         setEpisodeData(episode);
-      } catch (error) {
-        console.error("Erreur recherche YouTube:", error);
+      } catch (err) {
+        console.error("Erreur YTB:", err);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchYouTubeVideos();
+    fetchVideos();
   }, [effectiveTitle, animeId]);
 
   const videos = [
@@ -102,7 +102,7 @@ export default function YouTubeVideosSection({
       bgGradient: "bg-gradient-to-br from-purple-500 to-indigo-500",
     },
     {
-      id: "episode",
+      id: "episode1",
       data: episodeData,
       icon: Tv,
       label: "Épisode 1",
@@ -144,6 +144,7 @@ export default function YouTubeVideosSection({
     };
   }, [showFullPlayer]);
 
+  // Loading
   if (loading) {
     return (
       <motion.div
@@ -153,88 +154,81 @@ export default function YouTubeVideosSection({
         className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xl border border-slate-200 dark:border-slate-700"
       >
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500 animate-spin" />
-          <span className="ml-3 text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-medium">
-            Recherche de vidéos...
+          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <span className="ml-3 text-sm text-slate-500 dark:text-slate-400">
+            Recherche des vidéos...
           </span>
         </div>
       </motion.div>
     );
   }
 
-  if (availableVideos.length === 0) return null;
+  // Aucune vidéo trouvée
+  if (!availableVideos.length) return null;
 
+  // === UI ===
   return (
     <>
+      {/* LISTE des vidéos */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
         className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-xl border border-slate-200 dark:border-slate-700"
       >
-        {/* Header */}
-        <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
-          <div className="p-2 sm:p-2.5 bg-gradient-to-br from-red-500 to-pink-500 rounded-lg sm:rounded-xl shadow-lg">
-            <Play className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-gradient-to-br from-red-500 to-pink-500 rounded-xl shadow-xl">
+            <Play className="w-5 h-5 text-white" />
           </div>
-          <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-800 dark:text-white">
-            Vidéos
+          <h2 className="text-2xl font-black text-slate-800 dark:text-white">
+            Vidéos liées
           </h2>
         </div>
 
-        {/* Grid de vidéos */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-          {availableVideos.map((video, index) => {
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {availableVideos.map((video, i) => {
             const vid = video.data!;
-            const thumbnail =
-              vid.thumbnail ||
-              `https://img.youtube.com/vi/${vid.videoId}/mqdefault.jpg`;
+            const thumb = `https://img.youtube.com/vi/${vid.videoId}/mqdefault.jpg`;
 
             return (
               <motion.button
                 key={video.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 + index * 0.1 }}
+                transition={{ delay: 0.5 + i * 0.1 }}
                 onClick={() => {
                   setSelectedVideo(vid.videoId!);
                   setShowFullPlayer(true);
                 }}
-                className="group relative overflow-hidden rounded-xl border-2 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-all hover:shadow-lg active:scale-95 touch-manipulation"
+                className="relative overflow-hidden rounded-xl border-2 border-slate-200 dark:border-slate-700 hover:border-slate-400 hover:scale-[1.02] transition-all"
               >
                 <div className="relative aspect-video">
                   <img
-                    src={thumbnail}
-                    alt={vid.title || video.label}
+                    src={thumb}
+                    alt={video.label}
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent" />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div
-                      className={`p-3 sm:p-4 rounded-full ${video.bgGradient} shadow-2xl transform group-hover:scale-110 group-active:scale-100 transition-transform`}
+                      className={`p-3 rounded-full ${video.bgGradient} shadow-2xl`}
                     >
-                      <video.icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+                      <video.icon className="w-6 h-6 text-white" />
                     </div>
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 p-2.5 sm:p-3">
-                    <h3 className="font-bold text-white text-sm sm:text-base mb-0.5 drop-shadow-lg">
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <h3 className="font-bold text-white text-smdrop-shadow">
                       {video.label}
                     </h3>
-                    <p className="text-xs text-white/90 line-clamp-1 drop-shadow-md">
-                      {vid.title}
-                    </p>
                   </div>
                 </div>
               </motion.button>
             );
           })}
         </div>
-        <p className="mt-3 sm:mt-4 text-xs text-slate-500 dark:text-slate-400 text-center">
-          Appuyez pour regarder • Échap pour fermer
-        </p>
       </motion.div>
 
-      {/* Modal Player */}
+      {/* FULLSCREEN PLAYER */}
       <AnimatePresence>
         {showFullPlayer && selectedVideo && (
           <motion.div
@@ -246,17 +240,18 @@ export default function YouTubeVideosSection({
               if (e.target === e.currentTarget) setShowFullPlayer(false);
             }}
           >
+            {/* HEADER */}
             <motion.div
-              initial={{ y: -20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: -20, opacity: 0 }}
-              className="flex items-center justify-between p-3 sm:p-4 bg-black/50 backdrop-blur-sm border-b border-white/10"
+              initial={{ y: -20 }}
+              animate={{ y: 0 }}
+              exit={{ y: -20 }}
+              className="flex items-center justify-between p-4 bg-black/50 backdrop-blur-sm border-b border-white/10"
             >
-              <div className="flex items-center gap-1 sm:gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={goToPrev}
                   disabled={!canGoPrev}
-                  className={`p-2 rounded-lg transition-all ${
+                  className={`p-2 rounded-lg ${
                     canGoPrev
                       ? "bg-white/10 hover:bg-white/20 text-white"
                       : "bg-white/5 text-white/30 cursor-not-allowed"
@@ -264,10 +259,11 @@ export default function YouTubeVideosSection({
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
+
                 <button
                   onClick={goToNext}
                   disabled={!canGoNext}
-                  className={`p-2 rounded-lg transition-all ${
+                  className={`p-2 rounded-lg ${
                     canGoNext
                       ? "bg-white/10 hover:bg-white/20 text-white"
                       : "bg-white/5 text-white/30 cursor-not-allowed"
@@ -276,103 +272,63 @@ export default function YouTubeVideosSection({
                   <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
-              <div className="text-white/80 text-sm font-medium">
+
+              <div className="text-white/70 text-sm">
                 {currentIndex + 1} / {availableVideos.length}
               </div>
+
               <button
                 onClick={() => setShowFullPlayer(false)}
-                className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-white touch-manipulation"
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 text-white" />
               </button>
             </motion.div>
 
-            <div className="flex-1 flex items-center justify-center p-2 sm:p-4">
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                transition={{ type: "spring", damping: 25 }}
-                className="w-full max-w-7xl"
-              >
-                <div className="relative w-full aspect-video rounded-lg sm:rounded-2xl overflow-hidden shadow-2xl border-2 sm:border-4 border-white/10">
-                  <iframe
-                    src={`https://www.youtube.com/embed/${selectedVideo}?autoplay=1&rel=0&modestbranding=1`}
-                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                    allowFullScreen
-                    className="w-full h-full"
-                  />
-                </div>
-              </motion.div>
+            {/* PLAYER */}
+            <div className="flex-1 flex items-center justify-center p-4">
+              <div className="w-full max-w-6xl aspect-video rounded-xl overflow-hidden border border-white/10 shadow-xl">
+                <iframe
+                  src={`https://www.youtube.com/embed/${selectedVideo}?autoplay=1&rel=0&modestbranding=1`}
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allowFullScreen
+                  className="w-full h-full"
+                />
+              </div>
             </div>
 
+            {/* FOOTER */}
             <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 20, opacity: 0 }}
-              className="p-3 sm:p-4 bg-black/50 backdrop-blur-sm border-t border-white/10"
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              exit={{ y: 20 }}
+              className="p-4 bg-black/50 backdrop-blur-sm border-t border-white/10 flex flex-wrap items-center gap-2"
             >
-              <div className="mb-3 sm:mb-4">
-                {availableVideos.map((video) => {
-                  if (video.data?.videoId === selectedVideo) {
-                    return (
-                      <div key={video.id} className="text-white">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div
-                            className={`p-1.5 rounded-lg ${video.bgGradient}`}
-                          >
-                            <video.icon className="w-4 h-4 text-white" />
-                          </div>
-                          <span className="font-bold text-sm sm:text-base">
-                            {video.label}
-                          </span>
-                        </div>
-                        <p className="text-sm sm:text-base text-white/90 line-clamp-2 mb-1">
-                          {video.data.title}
-                        </p>
-                        {video.data.channelTitle && (
-                          <p className="text-xs sm:text-sm text-white/60">
-                            {video.data.channelTitle}
-                          </p>
-                        )}
-                        {video.data.fromCache && (
-                          <p className="text-xs sm:text-sm text-white/40 italic">
-                            Depuis le cache ({video.data.table})
-                          </p>
-                        )}
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
-              </div>
+              {availableVideos.map((video) => {
+                const active = video.data?.videoId === selectedVideo;
+                if (active) return null;
 
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                {availableVideos.map((video) => {
-                  const isActive = video.data?.videoId === selectedVideo;
-                  if (isActive) return null;
+                return (
+                  <button
+                    key={video.id}
+                    onClick={() => setSelectedVideo(video.data!.videoId!)}
+                    className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm font-medium"
+                  >
+                    <video.icon className="w-4 h-4" />
+                    {video.label}
+                  </button>
+                );
+              })}
 
-                  return (
-                    <button
-                      key={video.id}
-                      onClick={() => setSelectedVideo(video.data!.videoId!)}
-                      className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm font-medium transition-all touch-manipulation"
-                    >
-                      <video.icon className="w-4 h-4" />
-                      <span className="hidden sm:inline">{video.label}</span>
-                    </button>
-                  );
-                })}
-                <a
-                  href={`https://www.youtube.com/watch?v=${selectedVideo}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition-all text-sm shadow-lg ml-auto touch-manipulation"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>YouTube</span>
-                </a>
-              </div>
+              <a
+                href={`https://www.youtube.com/watch?v=${selectedVideo}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-white text-sm"
+              >
+                <ExternalLink className="w-4 h-4" />
+                YouTube
+              </a>
             </motion.div>
           </motion.div>
         )}

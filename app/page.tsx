@@ -1,746 +1,796 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { createClient } from "@/lib/supabase"; // Assurez-vous que le chemin est correct
-import { decompressBase64 } from "@/utils/compress"; // Assurez-vous que le chemin est correct
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import AnimeCard from "./components/AnimeCard"; // Assurez-vous que le chemin est correct
+import Link from "next/link";
+import AnimeCard from "./components/AnimeCard"; // Assure-toi que ce composant existe
 import {
-  ChevronRight,
-  ChevronLeft,
-  Filter,
-  X,
-  Sparkles,
-  BookOpen,
-  Hash,
-  Star,
-  Zap,
-  TrendingUp,
-  Heart,
   Search,
-  Compass,
-  Lightbulb,
+  TrendingUp,
+  Star,
+  Calendar,
+  ChevronRight,
+  Sparkles,
+  Flame,
+  Trophy,
+  Zap,
+  BookOpen,
+  Film,
+  Clock,
+  ChevronLeft,
+  Loader2,
+  X,
+  AlertCircle,
 } from "lucide-react";
-import HeroOnboarding from "./components/HeroOnboarding";
-import CrunchyNewsSlider from "./components/CrunchyNewsSlider";
-// Import Swiper
-import { Swiper, SwiperSlide } from "swiper/react";
-import "swiper/css";
-import "swiper/css/navigation";
-import { Navigation, Autoplay } from "swiper/modules";
 
-// Types
-interface Item {
+// --- Interfaces ---
+interface MediaItem {
   id: number;
   title: string;
+  title_english?: string;
+  title_japanese?: string;
   score: number;
   popularity: number;
+  members: number;
+  rank?: number;
   image_url: string;
-  description: string;
-  start_date: string;
+  description?: string;
+  description_fr?: string;
+  start_date?: string;
+  end_date?: string;
+  year?: number;
+  season?: string;
   genres: string[];
-  demographic: string;
-  is_french: boolean;
+  themes?: string[];
+  studios?: string[];
+  authors?: string[];
+  serializations?: string[];
+  demographic?: string | null;
   episodes?: number;
+  chapters?: number;
   volumes?: number;
+  type?: string;
   status?: string;
+  rating?: string;
+  mediaType: "anime" | "manga";
+  cosine_score?: number;
+  is_french?: boolean;
 }
 
-interface MangaFeed {
-  shonen: Item[];
-  shoujo: Item[];
-  seinen: Item[];
-  josei: Item[];
-  recent: Item[];
-  manhwa: Item[];
-}
-
-// ==================== UTILS ET SKELETON ====================
-const cleanTitleForSelector = (title: string) => {
-  return title
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
-};
-
-const SkeletonCard = () => (
-  <div className="bg-white dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 h-full animate-pulse">
-    <div className="aspect-[2/3] bg-slate-200 dark:bg-slate-800" />
-    <div className="p-4 space-y-3">
-      <div className="h-4 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4" />
-      <div className="flex gap-1">
-        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-10" />
-        <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-14" />
-      </div>
-    </div>
-  </div>
-);
-
-// ==================== MANGA SWIPER ====================
-interface MangaSwiperFeedProps {
+interface SearchResult {
+  id: number;
   title: string;
-  items: Item[];
-  loading: boolean;
-  CardComponent: React.ElementType;
+  image_url: string;
+  score: number;
+  year: number;
+  cosine_score: number;
 }
 
-const MangaSwiperFeed = ({
-  title,
-  items,
-  loading,
-  CardComponent,
-}: MangaSwiperFeedProps) => {
-  const cleanedTitle = cleanTitleForSelector(title);
-  const nextElClass = `.swiper-button-next-${cleanedTitle}`;
-  const prevElClass = `.swiper-button-prev-${cleanedTitle}`;
-
-  return (
-    <div className="mb-12">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl md:text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg">
-            <BookOpen className="w-6 h-6 text-white" />
-          </div>
-          {title}
-        </h2>
-        <button className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all">
-          Voir tout
-          <ChevronRight size={20} />
-        </button>
-      </div>
-
-      <div className="relative">
-        <Swiper
-          modules={[Navigation]}
-          spaceBetween={20}
-          slidesPerView={2}
-          navigation={{
-            nextEl: nextElClass,
-            prevEl: prevElClass,
-          }}
-          breakpoints={{
-            640: { slidesPerView: 3, spaceBetween: 20 },
-            768: { slidesPerView: 4, spaceBetween: 25 },
-            1024: { slidesPerView: 5, spaceBetween: 30 },
-            1280: { slidesPerView: 6, spaceBetween: 30 },
-          }}
-          className="!pb-4"
-        >
-          {loading ? (
-            Array.from({ length: 6 }).map((_, i) => (
-              <SwiperSlide key={`skel-${i}`}>
-                <SkeletonCard />
-              </SwiperSlide>
-            ))
-          ) : items.length > 0 ? (
-            items.map((item, index) => (
-              <SwiperSlide key={item.id}>
-                <AnimeCard anime={item} index={index} />
-              </SwiperSlide>
-            ))
-          ) : (
-            <div className="col-span-full py-12 text-center text-slate-500">
-              Aucun manga trouvé pour cette catégorie.
-            </div>
-          )}
-        </Swiper>
-
-        {/* Navigation Buttons */}
-        <button
-          className={`${prevElClass.substring(
-            1
-          )} absolute top-1/2 -left-5 transform -translate-y-1/2 z-10 bg-white dark:bg-slate-900 rounded-full p-3 shadow-xl border-2 border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 hover:scale-110 transition-all hidden lg:flex items-center justify-center group`}
-        >
-          <ChevronLeft className="w-6 h-6 text-slate-600 dark:text-slate-400 group-hover:text-indigo-500 transition-colors" />
-        </button>
-        <button
-          className={`${nextElClass.substring(
-            1
-          )} absolute top-1/2 -right-5 transform -translate-y-1/2 z-10 bg-white dark:bg-slate-900 rounded-full p-3 shadow-xl border-2 border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-500 hover:scale-110 transition-all hidden lg:flex items-center justify-center group`}
-        >
-          <ChevronRight className="w-6 h-6 text-slate-600 dark:text-slate-400 group-hover:text-indigo-500 transition-colors" />
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ==================== MAIN COMPONENT ====================
 export default function HomePage() {
-  const [animes, setAnimes] = useState<Item[]>([]);
-  const [loadingAnime, setLoadingAnime] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState("anime_nouveautes");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [showFilters, setShowFilters] = useState(false);
+  const [activeTab, setActiveTab] = useState<"anime" | "manga">("anime");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout>();
 
-  const [mangaFeeds, setMangaFeeds] = useState<MangaFeed | null>(null);
-  const [loadingMangaFeeds, setLoadingMangaFeeds] = useState(true);
+  // States pour les animes
+  const [trendingAnimes, setTrendingAnimes] = useState<MediaItem[]>([]);
+  const [topRatedAnimes, setTopRatedAnimes] = useState<MediaItem[]>([]);
+  const [seasonalAnimes, setSeasonalAnimes] = useState<MediaItem[]>([]);
+  const [popularAnimes, setPopularAnimes] = useState<MediaItem[]>([]);
+  const [upcomingAnimes, setUpcomingAnimes] = useState<MediaItem[]>([]);
+  const [recentAnimes, setRecentAnimes] = useState<MediaItem[]>([]);
 
-  const [selectedGenre, setSelectedGenre] = useState<string>("all");
-  const [selectedEpisodes, setSelectedEpisodes] = useState<string>("all");
-  const [selectedEra, setSelectedEra] = useState<string>("all");
+  // States pour les mangas
+  const [trendingMangas, setTrendingMangas] = useState<MediaItem[]>([]);
+  const [topRatedMangas, setTopRatedMangas] = useState<MediaItem[]>([]);
+  const [popularMangas, setPopularMangas] = useState<MediaItem[]>([]);
 
-  const ITEMS_PER_PAGE = 18;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Categories ANIME - Nouveautés en premier !
-  const catalogueCategories = [
-    { id: "anime_nouveautes", label: "🔥 Nouveautés", icon: Sparkles },
-    { id: "anime_shonen", label: "⚔️ Shonen" },
-    { id: "anime_seinen", label: "🎭 Seinen" },
-    { id: "anime_shoujo", label: "🌸 Shoujo" },
-    { id: "anime_josei", label: "💎 Josei" },
-    { id: "anime_catalogue_general", label: "📚 Général", icon: Hash },
-  ];
+  // Refs pour les sliders
+  const upcomingSliderRef = useRef<HTMLDivElement>(null);
+  const recentSliderRef = useRef<HTMLDivElement>(null);
 
-  const genres = [
-    "all",
-    "Action",
-    "Adventure",
-    "Comedy",
-    "Drama",
-    "Fantasy",
-    "Horror",
-    "Mystery",
-    "Romance",
-    "Sci-Fi",
-    "Slice of Life",
-    "Sports",
-    "Supernatural",
-    "Thriller",
-  ];
-  const episodeRanges = [
-    { value: "all", label: "Tous" },
-    { value: "1-12", label: "1-12 épisodes" },
-    { value: "13-24", label: "13-24 épisodes" },
-    { value: "25-50", label: "25-50 épisodes" },
-    { value: "50+", label: "50+ épisodes" },
-  ];
-  const eras = [
-    { value: "all", label: "Toutes périodes" },
-    { value: "2020s", label: "Années 2020+" },
-    { value: "2010s", label: "Années 2010" },
-    { value: "2000s", label: "Années 2000" },
-    { value: "oldschool", label: "Old School (90s-)" },
-  ];
-
-  const processItemDescriptions = useCallback((data: any[]): Item[] => {
-    return data.map((item) => {
-      let finalDescription = "";
-      let isFrench = false;
-
-      try {
-        if (item.description_fr) {
-          const decodedFr = decompressBase64(item.description_fr);
-          if (decodedFr && decodedFr.trim().length > 0) {
-            finalDescription = decodedFr;
-            isFrench = true;
-          }
-        }
-      } catch (err) {}
-
-      if (!item.description_fr) {
-        try {
-          const decodedEn = decompressBase64(item.description);
-          finalDescription = decodedEn || item.description || "";
-        } catch {
-          finalDescription = item.description || "";
-        }
-      }
-
-      return { ...item, description: finalDescription, is_french: isFrench };
-    });
+  useEffect(() => {
+    loadContent();
   }, []);
 
-  // Fetch Manga Feeds
+  // Recherche en temps réel avec debounce
   useEffect(() => {
-    const supabase = createClient();
-    const fetchFeed = async (
-      tableName: string,
-      limit: number
-    ): Promise<Item[]> => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select("*")
-          .limit(limit)
-          // .order("start_date", { ascending: false, nullsFirst: false })
-          .order("members", { ascending: false });
+        const res = await fetch("/api/semantic-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: searchQuery,
+            matchCount: 8,
+            minSimilarity: 0.35,
+          }),
+        });
 
-        if (error) throw error;
-        return processItemDescriptions(data || []);
+        const data = await res.json();
+        setSearchResults(data.results || []);
+        setShowSearchResults(true);
       } catch (err) {
-        console.error(`Erreur ${tableName}:`, err);
-        return [];
-      }
-    };
-    const fetchFeedManhwa = async (
-      tableName: string,
-      limit: number
-    ): Promise<Item[]> => {
-      try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select("*")
-          .eq("type", "Manhwa")
-          .limit(limit)
-          .order("start_date", { ascending: false, nullsFirst: false });
-
-        if (error) throw error;
-        return processItemDescriptions(data || []);
-      } catch (err) {
-        console.error(`Erreur ${tableName}:`, err);
-        return [];
-      }
-    };
-
-    const fetchAllMangaFeeds = async () => {
-      setLoadingMangaFeeds(true);
-      const [shonen, shoujo, seinen, josei, recent, manhwa] = await Promise.all(
-        [
-          fetchFeed("manga_shonen", 100),
-          fetchFeed("manga_shoujo", 100),
-          fetchFeed("manga_seinen", 100),
-          fetchFeed("manga_josei", 100),
-          // On utilise manga_nouveautes si elle existe, sinon shonen par défaut pour un feed
-          fetchFeed(
-            "manga_nouveautes" in supabase
-              ? "manga_nouveautes"
-              : "manga_catalogue_general",
-            200
-          ),
-          fetchFeedManhwa("manga_catalogue_general", 200),
-        ]
-      );
-      setMangaFeeds({ shonen, shoujo, seinen, josei, recent, manhwa });
-      setLoadingMangaFeeds(false);
-    };
-
-    fetchAllMangaFeeds();
-  }, [processItemDescriptions]);
-
-  // Fetch Anime Catalogue
-  useEffect(() => {
-    const supabase = createClient();
-
-    async function fetchData() {
-      setLoadingAnime(true);
-      try {
-        const { data, error } = await supabase
-          .from(selectedCategory)
-          .select("*")
-          .limit(10000)
-          .order("start_date", { ascending: false, nullsFirst: false })
-          .order("members", { ascending: false });
-
-        if (error) throw error;
-        setAnimes(processItemDescriptions(data || []));
-      } catch (err) {
-        console.error("Erreur Supabase:", err);
+        console.error("Search error:", err);
       } finally {
-        setLoadingAnime(false);
+        setSearchLoading(false);
       }
-    }
+    }, 500);
 
-    fetchData();
-    setCurrentPage(1);
-  }, [selectedCategory, processItemDescriptions]);
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery]);
 
-  // Filtrage
-  const filteredAnimes = useMemo(() => {
-    let filtered = [...animes];
+  const loadContent = async () => {
+    setLoading(true);
+    setError(null);
 
-    if (selectedGenre !== "all") {
-      filtered = filtered.filter((anime) =>
-        anime.genres?.some(
-          (g) => g.toLowerCase() === selectedGenre.toLowerCase()
-        )
-      );
-    }
+    try {
+      const currentYear = new Date().getFullYear();
 
-    if (selectedEpisodes !== "all") {
-      filtered = filtered.filter((anime) => {
-        const eps = anime.episodes || 0;
-        if (selectedEpisodes === "1-12") return eps >= 1 && eps <= 12;
-        if (selectedEpisodes === "13-24") return eps >= 13 && eps <= 24;
-        if (selectedEpisodes === "25-50") return eps >= 25 && eps <= 50;
-        if (selectedEpisodes === "50+") return eps > 50;
-        return true;
+      // Chargement PARALLÈLE des animes
+      const animePromises = [
+        fetch("/api/animes?sortBy=popularity&sortOrder=asc&perPage=12").then(
+          (r) => r.json()
+        ),
+        fetch(
+          "/api/animes?sortBy=score&sortOrder=desc&perPage=12&minScore=7.5"
+        ).then((r) => r.json()),
+        fetch(
+          `/api/animes?sortBy=start_date&sortOrder=desc&perPage=12&yearMin=${currentYear}`
+        ).then((r) => r.json()),
+        fetch("/api/animes?sortBy=members&sortOrder=desc&perPage=12").then(
+          (r) => r.json()
+        ),
+        // Animes à venir
+        fetch(
+          `/api/animes?status=Not yet aired&sortBy=start_date&sortOrder=asc&perPage=15`
+        ).then((r) => r.json()),
+        // Animes récents (derniers 3 mois)
+        fetch(
+          `/api/animes?sortBy=start_date&sortOrder=desc&perPage=15&yearMin=${currentYear}`
+        ).then((r) => r.json()),
+      ];
+
+      // Chargement PARALLÈLE des mangas
+      const mangaPromises = [
+        fetch("/api/mangas?sortBy=popularity&sortOrder=asc&perPage=12").then(
+          (r) => r.json()
+        ),
+        fetch(
+          "/api/mangas?sortBy=score&sortOrder=desc&perPage=12&minScore=7.5"
+        ).then((r) => r.json()),
+        fetch("/api/mangas?sortBy=members&sortOrder=desc&perPage=12").then(
+          (r) => r.json()
+        ),
+      ];
+
+      const [
+        trendingAnimeData,
+        topAnimeData,
+        seasonalData,
+        popularAnimeData,
+        upcomingData,
+        recentData,
+        trendingMangaData,
+        topMangaData,
+        popularMangaData,
+      ] = await Promise.all([...animePromises, ...mangaPromises]);
+
+      const mapAnime = (anime: any): MediaItem => ({
+        ...anime,
+        mediaType: "anime" as const,
+        description: anime.description || anime.description_fr || "",
+        studios: anime.studios || [],
+        genres: anime.genres || [],
+        themes: anime.themes || [],
+        is_french: false,
       });
-    }
 
-    if (selectedEra !== "all") {
-      filtered = filtered.filter((anime) => {
-        if (!anime.start_date) return false;
-        const year = Number(anime.start_date.substring(0, 4));
-        if (selectedEra === "2020s") return year >= 2020;
-        if (selectedEra === "2010s") return year >= 2010 && year < 2020;
-        if (selectedEra === "2000s") return year >= 2000 && year < 2010;
-        if (selectedEra === "oldschool") return year < 2000;
-        return true;
+      setTrendingAnimes((trendingAnimeData.animes || []).map(mapAnime));
+      setTopRatedAnimes((topAnimeData.animes || []).map(mapAnime));
+      setSeasonalAnimes((seasonalData.animes || []).map(mapAnime));
+      setPopularAnimes((popularAnimeData.animes || []).map(mapAnime));
+      setUpcomingAnimes((upcomingData.animes || []).map(mapAnime));
+      setRecentAnimes((recentData.animes || []).map(mapAnime));
+
+      const mapManga = (manga: any): MediaItem => ({
+        ...manga,
+        mediaType: "manga" as const,
+        description: manga.description || manga.description_fr || "",
+        studios: manga.authors || [],
+        genres: manga.genres || [],
+        themes: manga.themes || [],
+        is_french: false,
       });
+
+      setTrendingMangas((trendingMangaData.mangas || []).map(mapManga));
+      setTopRatedMangas((topMangaData.mangas || []).map(mapManga));
+      setPopularMangas((popularMangaData.mangas || []).map(mapManga));
+    } catch (err) {
+      console.error("Erreur de chargement:", err);
+      setError("Impossible de charger le contenu. Veuillez réessayer.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    return filtered;
-  }, [animes, selectedGenre, selectedEpisodes, selectedEra]);
+  const handleSearch = (e?: any) => {
+    if (e) e.preventDefault();
+    if (searchQuery.trim()) {
+      window.location.href = `/${activeTab}?q=${encodeURIComponent(
+        searchQuery
+      )}`;
+    }
+  };
 
-  const totalPages = Math.ceil(filteredAnimes.length / ITEMS_PER_PAGE);
-  const paginatedAnimes = filteredAnimes.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+  const scroll = (
+    ref: React.RefObject<HTMLDivElement>,
+    direction: "left" | "right"
+  ) => {
+    if (ref.current) {
+      const scrollAmount = direction === "left" ? -400 : 400;
+      ref.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+    }
+  };
+
+  // --- Composants Internes ---
+
+  const SearchResultCard = ({ result }: { result: SearchResult }) => (
+    <Link href={`/anime/${result.id}`}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        whileHover={{ scale: 1.02 }}
+        className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800 transition-all cursor-pointer group"
+      >
+        <div className="relative w-16 h-20 rounded-lg overflow-hidden flex-shrink-0">
+          <img
+            src={result.image_url}
+            alt={result.title}
+            className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+          />
+          {result.cosine_score && (
+            <div className="absolute top-1 right-1 bg-pink-500 text-white text-[8px] font-bold px-1 py-0.5 rounded">
+              {Math.round(result.cosine_score * 100)}%
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-white font-bold text-sm line-clamp-1 group-hover:text-pink-400 transition-colors">
+            {result.title}
+          </h3>
+          <div className="flex items-center gap-2 text-xs text-slate-400 mt-1">
+            {result.score && (
+              <span className="flex items-center gap-1">
+                <Star className="w-3 h-3 text-yellow-500 fill-current" />
+                {result.score.toFixed(1)}
+              </span>
+            )}
+            {result.year && <span>• {result.year}</span>}
+          </div>
+        </div>
+      </motion.div>
+    </Link>
   );
 
-  const hasActiveFilters =
-    selectedGenre !== "all" ||
-    selectedEpisodes !== "all" ||
-    selectedEra !== "all";
+  const SliderCard = ({ item }: { item: MediaItem }) => (
+    <Link href={`/anime/${item.id}`}>
+      <motion.div
+        whileHover={{ y: -8, scale: 1.03 }}
+        className="group relative bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl overflow-hidden shadow-xl cursor-pointer border border-slate-700/50 hover:border-pink-500/50 transition-all w-44 flex-shrink-0"
+      >
+        <div className="relative aspect-[2/3] overflow-hidden">
+          <img
+            src={item.image_url}
+            alt={item.title}
+            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
 
-  const clearFilters = () => {
-    setSelectedGenre("all");
-    setSelectedEpisodes("all");
-    setSelectedEra("all");
+          {item.score && (
+            <div className="absolute top-2 right-2 bg-yellow-500 text-black px-2 py-1 rounded-lg font-bold text-xs flex items-center gap-1 shadow-lg">
+              <Star className="w-3 h-3 fill-current" />
+              {item.score.toFixed(1)}
+            </div>
+          )}
+
+          <div className="absolute bottom-0 left-0 right-0 p-3">
+            <h3 className="font-bold text-white text-xs line-clamp-2 group-hover:text-pink-400 transition-colors">
+              {item.title}
+            </h3>
+            {item.start_date && (
+              <p className="text-slate-300 text-[10px] mt-1 flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {new Date(item.start_date).toLocaleDateString("fr-FR", {
+                  month: "short",
+                  year: "numeric",
+                })}
+              </p>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </Link>
+  );
+
+  const Slider = ({
+    title,
+    items,
+    icon: Icon,
+    sliderRef,
+  }: {
+    title: string;
+    items: MediaItem[];
+    icon: any;
+    sliderRef: React.RefObject<HTMLDivElement>;
+  }) => {
+    if (!items || items.length === 0) return null;
+
+    return (
+      <motion.section
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-12 px-4 md:px-0"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-600 shadow-lg">
+              <Icon className="w-6 h-6 text-white" />
+            </div>
+            <h2 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white">
+              {title}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => scroll(sliderRef, "left")}
+              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-white transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => scroll(sliderRef, "right")}
+              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-white transition-all"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={sliderRef}
+          className="flex gap-4 overflow-x-auto scrollbar-hide scroll-smooth pb-4"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          {items.map((item, i) => (
+            <SliderCard key={item.id} item={item} />
+          ))}
+        </div>
+      </motion.section>
+    );
+  };
+
+  const Section = ({
+    title,
+    items,
+    icon: Icon,
+    gradient,
+    emoji,
+  }: {
+    title: string;
+    items: MediaItem[];
+    icon: any;
+    gradient: string;
+    emoji: string;
+  }) => {
+    if (!items || items.length === 0) return null;
+
+    return (
+      <motion.section
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mb-16"
+      >
+        <div className="flex items-center justify-between mb-6 px-4 md:px-0">
+          <motion.div
+            initial={{ x: -20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            className="flex items-center gap-3"
+          >
+            <motion.div
+              whileHover={{ scale: 1.1, rotate: 5 }}
+              className={`p-2.5 rounded-2xl bg-gradient-to-br ${gradient} shadow-lg`}
+            >
+              <Icon className="w-6 h-6 text-white" />
+            </motion.div>
+            <div>
+              <h2 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <span>{emoji}</span>
+                <span>{title}</span>
+              </h2>
+              <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                {items.length} {activeTab === "anime" ? "animes" : "mangas"}{" "}
+                disponibles
+              </p>
+            </div>
+          </motion.div>
+          <Link
+            href={`/${activeTab}`}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl transition-all font-bold text-xs md:text-sm group shadow-lg hover:shadow-xl"
+          >
+            <span className="hidden sm:inline">Voir tout</span>
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5 px-4 md:px-0">
+          <AnimatePresence mode="popLayout">
+            {items.map((item, index) => (
+              <AnimeCard key={item.id} anime={item} index={index} />
+            ))}
+          </AnimatePresence>
+        </div>
+      </motion.section>
+    );
   };
 
   return (
-    <div className="min-h-screen minw-screen px-4">
-      {/* ==================== HERO ONBOARDING ==================== */}
-      {/* <HeroOnboarding /> */}
-      <CrunchyNewsSlider />
+    <div className="min-h-screen bg-gradient-to-br from-slate-5 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30">
+      {/* Hero Section Ultra Moderne */}
+      <div className="relative bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 overflow-hidden">
+        <motion.div
+          animate={{
+            backgroundPosition: ["0% 0%", "100% 100%"],
+          }}
+          transition={{
+            duration: 20,
+            repeat: Infinity,
+            repeatType: "reverse",
+          }}
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+            backgroundSize: "60px 60px",
+          }}
+        />
 
-      <div className="max-w-[1400px] mx-auto">
-        {/* ==================== SECTION ANIME ==================== */}
-        <div className="mb-16">
+        <div className="container mx-auto px-4 py-12 md:py-20 relative z-10">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center justify-between mb-8"
+            className="text-center max-w-4xl mx-auto"
           >
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl shadow-lg">
-                <Star className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <h2 className="text-3xl md:text-4xl font-black text-slate-800 dark:text-white">
-                  Catalogue Anime
-                </h2>
-                <p className="text-slate-600 dark:text-slate-400 font-medium">
-                  {filteredAnimes.length} anime
-                  {filteredAnimes.length > 1 ? "s" : ""} disponible
-                  {filteredAnimes.length > 1 ? "s" : ""}
-                </p>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Categories Anime */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="flex flex-wrap gap-3 mb-6"
-          >
-            {catalogueCategories.map((cat, i) => (
-              <motion.button
-                key={cat.id}
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.2 + i * 0.05 }}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-6 py-3 rounded-xl font-bold text-sm transition-all shadow-md hover:shadow-xl ${
-                  selectedCategory === cat.id
-                    ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white scale-105"
-                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border-2 border-slate-200 dark:border-slate-700"
-                }`}
-              >
-                {cat.label}
-              </motion.button>
-            ))}
-          </motion.div>
-
-          {/* Filtres Anime */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xl border border-slate-200 dark:border-slate-700 mb-8"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <Filter className="w-5 h-5 text-indigo-500" />
-                <h3 className="font-black text-lg text-slate-800 dark:text-white">
-                  Filtres
-                </h3>
-                {hasActiveFilters && (
-                  <button
-                    onClick={clearFilters}
-                    className="px-3 py-1 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-500/20 transition-all flex items-center gap-1"
-                  >
-                    <X size={12} />
-                    Réinitialiser
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="lg:hidden text-sm font-bold text-indigo-600 dark:text-indigo-400"
-              >
-                {showFilters ? "Masquer" : "Afficher"}
-              </button>
-            </div>
-
             <motion.div
-              initial={false}
-              // Afficher les filtres si showFilters est true OU si la taille de l'écran est >= lg (1024px)
-              animate={{
-                height: showFilters,
-              }}
-              className="overflow-hidden"
+              initial={{ scale: 0, rotate: -180 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: "spring", duration: 0.8, delay: 0.2 }}
+              className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-md px-5 py-2.5 rounded-full mb-8 border border-white/30 shadow-2xl"
             >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-bold mb-2 text-slate-600 dark:text-slate-400">
-                    📚 Genre
-                  </label>
-                  <select
-                    value={selectedGenre}
-                    onChange={(e) => {
-                      setSelectedGenre(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 font-semibold focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                  >
-                    {genres.map((g) => (
-                      <option key={g} value={g}>
-                        {g === "all" ? "Tous" : g}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold mb-2 text-slate-600 dark:text-slate-400">
-                    🎬 Épisodes
-                  </label>
-                  <select
-                    value={selectedEpisodes}
-                    onChange={(e) => {
-                      setSelectedEpisodes(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 font-semibold focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                  >
-                    {episodeRanges.map((r) => (
-                      <option key={r.value} value={r.value}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold mb-2 text-slate-600 dark:text-slate-400">
-                    📅 Période
-                  </label>
-                  <select
-                    value={selectedEra}
-                    onChange={(e) => {
-                      setSelectedEra(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 font-semibold focus:ring-4 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                  >
-                    {eras.map((e) => (
-                      <option key={e.value} value={e.value}>
-                        {e.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              >
+                <Sparkles className="w-4 h-4 text-yellow-300" />
+              </motion.div>
+              <span className="text-white font-bold text-sm">
+                Des milliers d'œuvres à découvrir
+              </span>
             </motion.div>
-          </motion.div>
 
-          {/* Grid Anime */}
-          <motion.div
-            layout
-            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6"
-          >
-            <AnimatePresence mode="popLayout">
-              {loadingAnime ? (
-                Array.from({ length: 18 }).map((_, i) => (
-                  <motion.div
-                    key={`skel-${i}`}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    <SkeletonCard />
-                  </motion.div>
-                ))
-              ) : paginatedAnimes.length > 0 ? (
-                paginatedAnimes.map((anime, index) => (
-                  <AnimeCard
-                    key={`${anime.id}-${currentPage}`}
-                    anime={anime}
-                    index={index}
-                  />
-                ))
-              ) : (
-                <div className="col-span-full py-32 text-center">
-                  <p className="text-lg font-bold text-slate-500">
-                    Aucun résultat trouvé
-                  </p>
-                </div>
-              )}
-            </AnimatePresence>
-          </motion.div>
+            <motion.h1
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-6 leading-tight"
+            >
+              Votre univers
+              <br />
+              <motion.span
+                animate={{
+                  backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
+                }}
+                transition={{ duration: 5, repeat: Infinity }}
+                className="bg-gradient-to-r from-yellow-300 via-pink-300 to-purple-300 bg-clip-text text-transparent bg-[length:200%_auto]"
+              >
+                Anime & Manga
+              </motion.span>
+            </motion.h1>
 
-          {/* Pagination */}
-          {!loadingAnime && filteredAnimes.length > 0 && totalPages > 1 && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="text-lg md:text-xl text-white/90 mb-8 font-medium max-w-2xl mx-auto leading-relaxed"
+            >
+              Explorez, découvrez et suivez vos séries et mangas préférés en un
+              seul endroit
+            </motion.p>
+
+            {/* Search Bar Premium avec résultats en temps réel */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-12 flex items-center justify-center gap-4"
+              transition={{ delay: 0.6 }}
+              className="max-w-3xl mx-auto mb-8 relative"
             >
-              {/* Bouton Précédent */}
-              <button
-                onClick={() => {
-                  setCurrentPage((p) => Math.max(1, p - 1));
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                disabled={currentPage === 1}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-                  currentPage === 1
-                    ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                    : "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 hover:shadow-xl hover:-translate-x-1 border-2 border-slate-200 dark:border-slate-700"
-                }`}
-              >
-                <ChevronLeft size={20} />
-                Précédent
-              </button>
+              <div className="relative group">
+                <motion.div
+                  animate={{ scale: [1, 1.02, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="absolute -inset-1 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 rounded-3xl blur opacity-30 group-hover:opacity-50 transition-opacity"
+                />
+                <div className="relative">
+                  <Search className="absolute left-5 md:left-6 top-1/2 -translate-y-1/2 w-5 h-5 md:w-6 md:h-6 text-slate-400 group-focus-within:text-indigo-500 transition-colors z-10" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                    onFocus={() =>
+                      searchQuery.length >= 2 && setShowSearchResults(true)
+                    }
+                    placeholder="Recherche intelligente d'anime..."
+                    className="w-full pl-14 md:pl-16 pr-4 md:pr-40 py-5 md:py-6 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-white/50 dark:focus:ring-indigo-500/50 transition-all text-base md:text-lg font-medium"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery("");
+                        setShowSearchResults(false);
+                      }}
+                      className="absolute right-36 md:right-44 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  )}
+                  {searchLoading && (
+                    <div className="absolute right-36 md:right-44 top-1/2 -translate-y-1/2">
+                      <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+                    </div>
+                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleSearch}
+                    className="absolute right-2 md:right-3 top-1/2 -translate-y-1/2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-6 md:px-10 py-3 md:py-4 rounded-xl font-bold transition-all shadow-lg hover:shadow-2xl text-sm md:text-base"
+                  >
+                    Rechercher
+                  </motion.button>
+                </div>
 
-              {/* Indicateur de page */}
-              <div className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl shadow-xl">
-                <span className="text-white font-black text-lg">
-                  {currentPage} / {totalPages}
-                </span>
+                {/* Résultats de recherche en temps réel */}
+                <AnimatePresence>
+                  {showSearchResults && searchResults.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute top-full mt-2 left-0 right-0 bg-slate-950 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 max-h-96 overflow-y-auto"
+                    >
+                      <div className="p-2 space-y-1">
+                        <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wide flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-pink-500" />
+                          Résultats intelligents ({searchResults.length})
+                        </div>
+                        {searchResults.map((result) => (
+                          <SearchResultCard key={result.id} result={result} />
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-
-              {/* Bouton Suivant (Complété) */}
-              <button
-                onClick={() => {
-                  setCurrentPage((p) => Math.min(totalPages, p + 1));
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                disabled={currentPage === totalPages}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all ${
-                  currentPage === totalPages
-                    ? "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"
-                    : "bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:shadow-xl hover:translate-x-1"
-                }`}
-              >
-                Suivant
-                <ChevronRight size={20} />
-              </button>
             </motion.div>
-          )}
-        </div>
 
-        {/* ==================== SECTION MANGA ==================== */}
-        <div className="pt-12 border-t-4 border-indigo-500">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-8"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl shadow-lg">
-                <BookOpen className="w-7 h-7 text-white" />
-              </div>
-              <div>
-                <h2 className="text-3xl md:text-4xl font-black text-slate-800 dark:text-white">
-                  Découvrez les Mangas
-                </h2>
-                <p className="text-slate-600 dark:text-slate-400 font-medium">
-                  Les meilleures séries manga par catégorie
-                </p>
-              </div>
-            </div>
+            {/* Tabs Switcher */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7 }}
+              className="inline-flex gap-3 bg-white/10 backdrop-blur-md p-2 rounded-2xl border border-white/20"
+            >
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setActiveTab("anime")}
+                className={`relative px-8 md:px-10 py-3.5 md:py-4 rounded-xl font-bold transition-all text-sm md:text-base overflow-hidden ${
+                  activeTab === "anime"
+                    ? "text-indigo-600"
+                    : "text-white hover:bg-white/10"
+                }`}
+              >
+                {activeTab === "anime" && (
+                  <motion.div
+                    layoutId="activeTab"
+                    className="absolute inset-0 bg-white shadow-2xl"
+                    transition={{ type: "spring", duration: 0.6 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <Film className="w-4 h-4" />
+                  Animes
+                </span>
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setActiveTab("manga")}
+                className={`relative px-8 md:px-10 py-3.5 md:py-4 rounded-xl font-bold transition-all text-sm md:text-base overflow-hidden ${
+                  activeTab === "manga"
+                    ? "text-indigo-600"
+                    : "text-white hover:bg-white/10"
+                }`}
+              >
+                {activeTab === "manga" && (
+                  <motion.div
+                    layoutId="activeTab"
+                    className="absolute inset-0 bg-white shadow-2xl"
+                    transition={{ type: "spring", duration: 0.6 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <BookOpen className="w-4 h-4" />
+                  Mangas
+                </span>
+              </motion.button>
+            </motion.div>
           </motion.div>
-
-          {/* Manga Feeds */}
-          <MangaSwiperFeed
-            title="🔥 Manga Tendance"
-            items={mangaFeeds?.recent || []}
-            loading={loadingMangaFeeds}
-            CardComponent={AnimeCard}
-          />
-
-          <MangaSwiperFeed
-            title="⚔️ Shonen - Action & Aventure"
-            items={mangaFeeds?.shonen || []}
-            loading={loadingMangaFeeds}
-            CardComponent={AnimeCard}
-          />
-
-          <MangaSwiperFeed
-            title="🎭 Seinen - Adulte & Mature"
-            items={mangaFeeds?.seinen || []}
-            loading={loadingMangaFeeds}
-            CardComponent={AnimeCard}
-          />
-
-          <MangaSwiperFeed
-            title="🌸 Shoujo - Romance & Émotion"
-            items={mangaFeeds?.shoujo || []}
-            loading={loadingMangaFeeds}
-            CardComponent={AnimeCard}
-          />
-
-          <MangaSwiperFeed
-            title="💎 Josei - Vie Quotidienne & Drame"
-            items={mangaFeeds?.josei || []}
-            loading={loadingMangaFeeds}
-            CardComponent={AnimeCard}
-          />
-          <MangaSwiperFeed
-            title="💎 Manhwa - Les meilleures oeuvres Coreennes"
-            items={mangaFeeds?.manhwa || []}
-            loading={loadingMangaFeeds}
-            CardComponent={AnimeCard}
-          />
         </div>
 
-        {/* ==================== SECTION CTA FINALE ==================== */}
+        {/* Le SVG Wave Separator */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="mt-16 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 dark:from-indigo-900 dark:via-purple-900 dark:to-pink-900 rounded-3xl p-12 text-center shadow-2xl"
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          className="absolute bottom-0 left-0 right-0"
         >
-          <div className="max-w-3xl mx-auto">
-            <Sparkles className="w-16 h-16 text-yellow-300 mx-auto mb-6" />
-            <h3 className="text-3xl md:text-4xl font-black text-white mb-4">
-              Vous n'avez pas encore trouvé votre pépite ?
-            </h3>
-            <p className="text-xl text-white/90 mb-8">
-              Utilisez notre système de recommandations IA pour découvrir des
-              animes parfaitement adaptés à vos goûts
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button className="group px-8 py-4 bg-white hover:bg-yellow-300 text-purple-600 font-black text-lg rounded-2xl shadow-2xl hover:shadow-yellow-300/50 transition-all transform hover:scale-105 flex items-center gap-3 justify-center">
-                <Lightbulb className="w-6 h-6 group-hover:rotate-12 transition-transform" />
-                Obtenir mes recommandations
-              </button>
-              <button className="group px-8 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-xl text-white font-black text-lg rounded-2xl border-2 border-white/30 hover:border-white/50 transition-all transform hover:scale-105 flex items-center gap-3 justify-center">
-                <Search className="w-6 h-6" />
-                Explorer le catalogue
-              </button>
-            </div>
-          </div>
+          <svg viewBox="0 0 1440 120" className="w-full h-auto">
+            <motion.path
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 1.5, delay: 0.5 }}
+              fill="currentColor"
+              className="text-slate-50 dark:text-slate-950"
+              d="M0,64L48,69.3C96,75,192,85,288,80C384,75,480,53,576,48C672,43,768,53,864,58.7C960,64,1056,64,1152,58.7C1248,53,1344,43,1392,37.3L1440,32L1440,120L1392,120C1344,120,1248,120,1152,120C1056,120,960,120,864,120C768,120,672,120,576,120C480,120,384,120,288,120C192,120,96,120,48,120L0,120Z"
+            />
+          </svg>
         </motion.div>
+      </div>
+
+      {/* --- Main Content Section --- */}
+      <div className="container mx-auto px-4 pb-20 relative z-20 -mt-10">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20 min-h-[50vh]">
+            <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
+            <p className="text-slate-500 font-medium animate-pulse">
+              Chargement de votre univers...
+            </p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-20 min-h-[50vh]">
+            <div className="bg-red-500/10 p-4 rounded-full mb-4">
+              <AlertCircle className="w-10 h-10 text-red-500" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+              Oups !
+            </h3>
+            <p className="text-slate-500 text-center max-w-md">{error}</p>
+            <button
+              onClick={loadContent}
+              className="mt-6 px-6 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-xl font-bold hover:opacity-90 transition-opacity"
+            >
+              Réessayer
+            </button>
+          </div>
+        ) : (
+          /* Affichage conditionnel selon l'onglet actif */
+          <div className="space-y-12">
+            {activeTab === "anime" ? (
+              <motion.div
+                key="anime-content"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5 }}
+              >
+                {/* Sliders Horizontaux */}
+                <Slider
+                  title="À venir prochainement"
+                  items={upcomingAnimes}
+                  icon={Clock}
+                  sliderRef={upcomingSliderRef}
+                />
+                <Slider
+                  title="Sorties récentes"
+                  items={recentAnimes}
+                  icon={Sparkles}
+                  sliderRef={recentSliderRef}
+                />
+
+                {/* Grilles de contenu */}
+                <Section
+                  title="Tendances du moment"
+                  items={trendingAnimes}
+                  icon={TrendingUp}
+                  gradient="from-orange-400 to-red-500"
+                  emoji="🔥"
+                />
+                <Section
+                  title="Saison en cours"
+                  items={seasonalAnimes}
+                  icon={Calendar}
+                  gradient="from-green-400 to-emerald-500"
+                  emoji="🍃"
+                />
+                <Section
+                  title="Les plus populaires"
+                  items={popularAnimes}
+                  icon={Flame}
+                  gradient="from-red-500 to-pink-500"
+                  emoji="❤️"
+                />
+                <Section
+                  title="Les mieux notés"
+                  items={topRatedAnimes}
+                  icon={Trophy}
+                  gradient="from-yellow-400 to-amber-500"
+                  emoji="🏆"
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="manga-content"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5 }}
+              >
+                {/* Sections Manga */}
+                <Section
+                  title="Mangas Tendance"
+                  items={trendingMangas}
+                  icon={TrendingUp}
+                  gradient="from-blue-400 to-indigo-500"
+                  emoji="📈"
+                />
+                <Section
+                  title="Mangas Populaires"
+                  items={popularMangas}
+                  icon={Flame}
+                  gradient="from-purple-400 to-fuchsia-500"
+                  emoji="🌟"
+                />
+                <Section
+                  title="Les Chefs-d'œuvre"
+                  items={topRatedMangas}
+                  icon={Trophy}
+                  gradient="from-yellow-400 to-amber-500"
+                  emoji="👑"
+                />
+              </motion.div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

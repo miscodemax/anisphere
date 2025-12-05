@@ -63,38 +63,14 @@ interface Manga {
   trailer_url?: string | null;
 }
 
-// Fonction pour déterminer la table (Manga)
-const getTableNameFromDemographic = (demographic: string): string => {
-  const map: Record<string, string> = {
-    shonen: "manga_shonen",
-    shoujo: "manga_shoujo",
-    seinen: "manga_seinen",
-    josei: "manga_josei",
-    // Nous utiliserons la table shonen par défaut si non spécifié pour le moment
-    nouveautes: "manga_shonen",
-    general: "manga_catalogue_general",
-  };
-  return map[demographic] || "manga_shonen";
-};
-
-// Extraire l'ID YouTube d'une URL
-const getYouTubeId = (url: string | null): string | null => {
-  if (!url) return null;
-  const match = url.match(
-    /(?:youtube\.com\/.*[?&]v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/
-  );
-  return match ? match[1] : null;
-};
-
 // ==================== PAGE PRINCIPALE MANGA ====================
 export default function MangaDetailsPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
+
   const router = useRouter();
 
   const mangaId = params.id as string;
   // Par défaut, nous utilisons "shonen" ou un autre type de démographie manga.
-  const mangaDemographic = searchParams.get("demographic") || "shonen";
 
   // Le type de données est maintenant Manga
   const [mangaData, setMangaData] = useState<Manga | null>(null);
@@ -107,13 +83,13 @@ export default function MangaDetailsPage() {
   const youtubeId = mangaData?.trailer_url || null;
 
   useEffect(() => {
-    if (!mangaId || !mangaDemographic) {
+    if (!mangaId) {
       setLoading(false);
       return;
     }
 
     // Utilisation des tables Manga
-    const TABLE_NAME = getTableNameFromDemographic(mangaDemographic);
+    const TABLE_NAME = "manga_all";
     const supabase = createClient();
 
     async function fetchData() {
@@ -245,7 +221,7 @@ export default function MangaDetailsPage() {
     }
 
     fetchData();
-  }, [mangaId, mangaDemographic]);
+  }, [mangaId]);
 
   if (loading) {
     return (
@@ -705,7 +681,7 @@ export default function MangaDetailsPage() {
                   <SimilarAnimeCard
                     // @ts-ignore : Passer les données Manga au composant AnimeCard
                     anime={manga}
-                    demographic={mangaDemographic}
+                    demographic={mangaData.demographic}
                   />
                 </motion.div>
               ))}

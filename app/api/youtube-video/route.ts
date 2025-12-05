@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase";
 import { openai } from "@/lib/openai";
 
+// LISTE des chaînes officielles
 const OFFICIAL_CHANNELS = [
   "crunchyroll",
   "crunchyroll france",
@@ -16,30 +17,33 @@ const OFFICIAL_CHANNELS = [
   "viz media",
 ];
 
-const SUPABASE_TABLES = [
-  "anime_shonen",
-  "anime_shoujo",
-  "anime_seinen",
-  "anime_nouveautes",
-  "anime_catalogue_general",
-];
+// Mapping type → champ Supabase
+const FIELD_MAP: Record<string, string> = {
+  trailer: "trailer_ytb",
+  opening: "op1_ytb",
+  episode1: "episode1_ytb",
+  amv: "amv_ytb",
+};
 
-// --- Cache Supabase
+// 🔥 1 — Vérifier si la vidéo existe déjà dans anime_all
 async function findExistingVideo(supabase: any, title: string, field: string) {
-  for (const table of SUPABASE_TABLES) {
-    const { data } = await supabase
-      .from(table)
-      .select(`${field}, id`)
-      .ilike("title", title);
+  const { data } = await supabase
+    .from("anime_all")
+    .select(`${field}, id`)
+    .ilike("title", title)
+    .limit(1);
 
-    if (data?.length && data[0][field]) {
-      return { table, id: data[0].id, video: data[0][field] };
-    }
+  if (data?.length && data[0][field]) {
+    return {
+      id: data[0].id,
+      video: data[0][field],
+    };
   }
+
   return null;
 }
 
-// --- Recherche YouTube
+// 🔥 2 — Recherche sur YouTube
 async function searchYoutube(query: string, apiKey: string) {
   const url =
     `https://www.googleapis.com/youtube/v3/search?` +
@@ -58,14 +62,14 @@ async function searchYoutube(query: string, apiKey: string) {
   return res.ok && data.items ? data.items : [];
 }
 
-// --- Générer une query YouTube ultra-précise avec GPT
+// 🔥 3 — GPT génère une requête ultra précise
 async function refineQueryWithGPT(animeTitle: string, type: string) {
   const prompt = `
-Tu es un expert en anime et en YouTube. 
-Je veux que tu crées une requête de recherche YouTube très précise pour trouver uniquement des vidéos correspondant à l'anime "${animeTitle}" et au type "${type}" (trailer, opening, épisode 1 ou AMV). 
-Réécris la requête de manière courte, efficace et précise, en incluant éventuellement "VF", "VOSTFR", "bande annonce", "opening" selon le type.
-Ne mets pas de JSON, répond juste par la requête texte prête à être utilisée.
-`;
+Tu es un expert en anime et YouTube.
+Je veux une requête de recherche ultra précise pour trouver uniquement les vidéos correspondant à l'anime "${animeTitle}" et au type "${type}" (trailer, opening, épisode 1 ou AMV).
+Optimise la requête YouTube en incluant VF, VOSTFR, bande annonce, opening si pertinent.
+Ne répond QUE par la requête texte.
+  `;
 
   const response = await openai.responses.create({
     model: "gpt-4o-mini-2024-07-18",
@@ -76,7 +80,7 @@ Ne mets pas de JSON, répond juste par la requête texte prête à être utilis�
   return response.output_text?.trim() || `${animeTitle} ${type}`;
 }
 
-// --- Choisir la meilleure vidéo selon VF > VOSTFR > Officiel > premier
+// 🔥 4 — Choisir la meilleure vidéo
 function chooseBestVideo(items: any[]) {
   if (!items.length) return null;
 
@@ -85,7 +89,6 @@ function chooseBestVideo(items: any[]) {
       video.snippet.title.toLowerCase().includes(k.toLowerCase())
     );
 
-  // 1 - VF
   const vfWords = [
     "vf",
     "french dub",
@@ -93,15 +96,15 @@ function chooseBestVideo(items: any[]) {
     "français",
     "fr dub",
   ];
+  const vostfrWords = ["vostfr", "stfr", "sub fr", "sous titres fr"];
+
+  // Priorités
   const vf = items.find((v) => includes(v, vfWords));
   if (vf) return vf;
 
-  // 2 - VOSTFR
-  const vostfrWords = ["vostfr", "stfr", "sub fr", "sous titres fr"];
   const vostfr = items.find((v) => includes(v, vostfrWords));
   if (vostfr) return vostfr;
 
-  // 3 - Officiel
   const official = items.find((v) =>
     OFFICIAL_CHANNELS.some((c) =>
       v.snippet.channelTitle.toLowerCase().includes(c)
@@ -109,25 +112,19 @@ function chooseBestVideo(items: any[]) {
   );
   if (official) return official;
 
-  // 4 - Sinon premier résultat
   return items[0];
 }
 
-// --- Mapping type → champ Supabase
-const FIELD_MAP: Record<string, string> = {
-  trailer: "trailer_ytb",
-  opening: "op1_ytb",
-  episode1: "episode1_ytb",
-  amv: "amv_ytb",
-};
-
-// --- API GET
+// 🔥 5 — Endpoint API
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const title = searchParams.get("title");
+  const rawTitle = searchParams.get("title");
   const type = searchParams.get("type") || "trailer";
 
-  if (!title) return Response.json({ error: "Missing title" }, { status: 400 });
+  if (!rawTitle)
+    return Response.json({ error: "Missing title" }, { status: 400 });
+
+  const title = rawTitle.toLowerCase().trim();
 
   const supabase = createClient();
   const apiKey = process.env.YOUTUBE_API_KEY;
@@ -137,57 +134,56 @@ export async function GET(req: Request) {
   }
 
   const targetField = FIELD_MAP[type];
-  if (!targetField)
+  if (!targetField) {
     return Response.json({ error: "Invalid type" }, { status: 400 });
+  }
 
-  // --- Vérifier cache
-  const existing = await findExistingVideo(supabase, title, targetField);
-  if (existing) {
+  // 🔎 Check cache direct dans anime_all
+  const cached = await findExistingVideo(supabase, title, targetField);
+  if (cached) {
     return Response.json({
       found: true,
       source: "cache",
-      table: existing.table,
-      videoId: existing.video,
+      videoId: cached.video,
+      id: cached.id,
     });
   }
 
-  // --- Générer query précise avec GPT
+  // 🧠 GPT → Query ultra précise
   const refinedQuery = await refineQueryWithGPT(title, type);
+
+  // 🔍 Recherche YouTube
   const results = await searchYoutube(refinedQuery, apiKey);
 
   if (!results.length) return Response.json({ found: false });
 
-  // --- Choisir meilleure vidéo
+  // ⭐ Sélectionne la meilleure vidéo
   const bestVideo = chooseBestVideo(results);
-  const bestVideoId = bestVideo?.id.videoId;
+  const bestVideoId = bestVideo?.id?.videoId;
 
   if (!bestVideoId) return Response.json({ found: false });
 
-  // --- Stocker dans Supabase
-  let savedTable: string | null = null;
-  for (const table of SUPABASE_TABLES) {
-    const { data } = await supabase
-      .from(table)
-      .select("id")
-      .ilike("title", title)
-      .limit(1);
+  // 💾 Sauvegarde directe dans anime_all
+  const { data } = await supabase
+    .from("anime_all")
+    .select("id")
+    .ilike("title", title)
+    .limit(1);
 
-    if (data?.length) {
-      await supabase
-        .from(table)
-        .update({ [targetField]: bestVideoId })
-        .eq("id", data[0].id);
-
-      savedTable = table;
-      break;
-    }
+  if (data?.length) {
+    await supabase
+      .from("anime_all")
+      .update({ [targetField]: bestVideoId })
+      .eq("id", data[0].id);
   }
 
   return Response.json({
     found: true,
     source: "youtube+GPT",
     videoId: bestVideoId,
-    savedIn: savedTable,
+    saved: true,
+    field: targetField,
+    id: data?.[0]?.id || null,
     type,
   });
 }

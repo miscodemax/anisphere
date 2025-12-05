@@ -1,10 +1,41 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { X, ChevronDown, Filter, Loader2, Search } from "lucide-react";
-import AnimeCard from "../components/AnimeCard";
+import { useEffect, useState, useCallback, useRef } from "react";
+import AnimeCard from "../components/AnimeCard"; // Assure-toi que le chemin est bon
+import {
+  X,
+  ChevronDown,
+  Filter,
+  Loader2,
+  Search,
+  RotateCcw,
+} from "lucide-react";
 
-// Composant Pill pour les tags sélectionnés
+// --- FONCTION UTILITAIRE : ÉVITER LES DOUBLONS ---
+
+/**
+ * Filtre un tableau d'animes pour ne conserver qu'une seule entrée par ID d'anime.
+ * @param {Array<Object>} animes - Le tableau d'objets anime.
+ * @returns {Array<Object>} Le tableau d'animes dédoublonné.
+ */
+const deduplicateAnimes = (animes) => {
+  const seenIds = new Set();
+  return animes.filter((anime) => {
+    // Supposons que chaque objet anime a une propriété 'id' unique
+    if (anime && anime.id) {
+      if (seenIds.has(anime.id)) {
+        return false; // C'est un doublon, on le filtre
+      } else {
+        seenIds.add(anime.id);
+        return true; // C'est la première fois qu'on voit cet ID, on le garde
+      }
+    }
+    return false; // Si l'objet n'a pas d'ID, on le filtre pour la sécurité
+  });
+};
+
+// --- COMPOSANTS UI (Inchangés) ---
+
 function Pill({ label, onRemove }) {
   return (
     <span className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full text-xs sm:text-sm font-medium shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
@@ -19,10 +50,21 @@ function Pill({ label, onRemove }) {
   );
 }
 
-// Composant Dropdown personnalisé
 function MultiSelectDropdown({ label, options, selected, onChange, icon }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const dropdownRef = useRef(null);
+
+  // Fermer le dropdown si on clique ailleurs
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const toggleOption = (value) => {
     if (selected.includes(value)) {
@@ -37,7 +79,7 @@ function MultiSelectDropdown({ label, options, selected, onChange, icon }) {
   );
 
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl hover:bg-white/10 hover:border-purple-500/50 transition-all duration-300 text-left group"
@@ -76,7 +118,7 @@ function MultiSelectDropdown({ label, options, selected, onChange, icon }) {
             </div>
           )}
 
-          <div className="max-h-60 overflow-y-auto">
+          <div className="max-h-60 overflow-y-auto custom-scrollbar">
             {filteredOptions.length === 0 ? (
               <div className="px-4 py-3 text-white/50 text-sm">
                 Aucun résultat
@@ -104,30 +146,41 @@ function MultiSelectDropdown({ label, options, selected, onChange, icon }) {
   );
 }
 
-export default function AllAnimesPage() {
-  // État pour TOUS les animes
-  const [allAnimes, setAllAnimes] = useState([]);
-  const [loading, setLoading] = useState(true);
+// --- PAGE PRINCIPALE (Modifiée) ---
 
-  // Lazy loading state
-  const [displayCount, setDisplayCount] = useState(50);
+export default function AllAnimesPage() {
+  // États de données
+  const [animes, setAnimes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   // Filtres
   const [selectedGenres, setSelectedGenres] = useState([]);
   const [selectedThemes, setSelectedThemes] = useState([]);
   const [selectedTypes, setSelectedTypes] = useState([]);
-  const [selectedSources, setSelectedSources] = useState([]);
   const [selectedStudios, setSelectedStudios] = useState([]);
   const [selectedStatuses, setSelectedStatuses] = useState([]);
   const [demographic, setDemographic] = useState("");
-  const [minEpisodes, setMinEpisodes] = useState(0);
-  const [maxEpisodes, setMaxEpisodes] = useState(0);
-  const [minScore, setMinScore] = useState(0);
-  const [startYear, setStartYear] = useState("");
-  const [endYear, setEndYear] = useState("");
-  const [filtersVisible, setFiltersVisible] = useState(true);
+  const [season, setSeason] = useState("");
+  const [rating, setRating] = useState("");
+  const [minScore, setMinScore] = useState("");
+  const [maxScore, setMaxScore] = useState("");
+  const [yearMin, setYearMin] = useState("");
+  const [yearMax, setYearMax] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("popularity");
+  const [sortOrder, setSortOrder] = useState("desc");
 
-  // Options pour les dropdowns
+  const [filtersVisible, setFiltersVisible] = useState(false);
+
+  // Refs
+  const observerTarget = useRef(null);
+  const abortControllerRef = useRef(null); // Pour annuler les requêtes périmées
+
+  // --- DATA OPTIONS (Inchangés) ---
   const genreOptions = [
     { value: "Action", label: "🔥 Action" },
     { value: "Adventure", label: "🗺️ Aventure" },
@@ -169,22 +222,6 @@ export default function AllAnimesPage() {
     { value: "Special", label: "⭐ Spécial" },
   ];
 
-  const sourceOptions = [
-    { value: "Manga", label: "📖 Manga" },
-    { value: "Light novel", label: "📚 Light Novel" },
-    { value: "Visual novel", label: "🎮 Visual Novel" },
-    { value: "Original", label: "✨ Original" },
-    { value: "Game", label: "🕹️ Jeu vidéo" },
-    { value: "Web manga", label: "🌐 Web Manga" },
-    { value: "Novel", label: "📕 Roman" },
-  ];
-
-  const statusOptions = [
-    { value: "Finished Airing", label: "✅ Terminé" },
-    { value: "Currently Airing", label: "▶️ En cours" },
-    { value: "Not yet aired", label: "⏳ À venir" },
-  ];
-
   const studioOptions = [
     { value: "Bones", label: "Bones" },
     { value: "Madhouse", label: "Madhouse" },
@@ -203,189 +240,205 @@ export default function AllAnimesPage() {
     { value: "David Production", label: "David Production" },
   ];
 
-  // 🔥 Charge TOUS les animes UNE SEULE FOIS au montage
-  useEffect(() => {
-    const fetchAllAnimes = async () => {
+  const statusOptions = [
+    { value: "Finished Airing", label: "✅ Terminé" },
+    { value: "Currently Airing", label: "▶️ En cours" },
+    { value: "Not yet aired", label: "⏳ À venir" },
+  ];
+
+  // --- LOGIQUE API (Modifiée pour le dédoublonnage) ---
+
+  const buildQueryParams = useCallback(
+    (pageNum) => {
+      const params = new URLSearchParams();
+      params.append("page", pageNum.toString());
+      params.append("perPage", "30");
+
+      if (selectedGenres.length > 0)
+        params.append("genres", selectedGenres.join(","));
+      if (selectedThemes.length > 0)
+        params.append("themes", selectedThemes.join(","));
+      if (selectedTypes.length > 0)
+        params.append("type", selectedTypes.join(","));
+      if (selectedStudios.length > 0)
+        params.append("studios", selectedStudios.join(","));
+      if (selectedStatuses.length > 0)
+        params.append("status", selectedStatuses.join(","));
+
+      if (demographic) params.append("demographic", demographic);
+      if (season) params.append("season", season);
+      if (rating) params.append("rating", rating);
+      if (minScore) params.append("minScore", minScore);
+      if (maxScore) params.append("maxScore", maxScore);
+      if (yearMin) params.append("yearMin", yearMin);
+      if (yearMax) params.append("yearMax", yearMax);
+      if (searchQuery) params.append("q", searchQuery);
+      if (sortBy) params.append("sortBy", sortBy);
+      if (sortOrder) params.append("sortOrder", sortOrder);
+
+      return params.toString();
+    },
+    [
+      selectedGenres,
+      selectedThemes,
+      selectedTypes,
+      selectedStudios,
+      selectedStatuses,
+      demographic,
+      season,
+      rating,
+      minScore,
+      maxScore,
+      yearMin,
+      yearMax,
+      searchQuery,
+      sortBy,
+      sortOrder,
+    ]
+  );
+
+  const fetchAnimes = useCallback(
+    async (pageNum, append = false, signal = null) => {
       try {
-        setLoading(true);
-        const res = await fetch("/api/animes");
+        if (append) {
+          setLoadingMore(true);
+        } else {
+          setLoading(true);
+        }
+
+        const queryString = buildQueryParams(pageNum);
+        const res = await fetch(`/api/animes?${queryString}`, { signal });
+
+        if (!res.ok) throw new Error("Erreur réseau");
+
         const data = await res.json();
-        setAllAnimes(data);
+
+        if (append) {
+          // --- LOGIQUE DE DÉDOUBLONNAGE APPLIQUÉE ICI ---
+          setAnimes((prev) => {
+            const combinedAnimes = [...prev, ...data.animes];
+            return deduplicateAnimes(combinedAnimes);
+          });
+          // --- FIN DE LA LOGIQUE DE DÉDOUBLONNAGE ---
+        } else {
+          // --- LOGIQUE DE DÉDOUBLONNAGE APPLIQUÉE ICI ---
+          setAnimes(deduplicateAnimes(data.animes));
+          // --- FIN DE LA LOGIQUE DE DÉDOUBLONNAGE ---
+          // Scroll en haut uniquement lors d'un nouveau filtrage complet
+          if (!loadingMore && typeof window !== "undefined") {
+            // Optionnel: window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }
+
+        setTotalPages(data.totalPages);
+        setTotal(data.total);
+        setPage(pageNum);
       } catch (error) {
-        console.error("Erreur chargement animes:", error);
+        if (error.name !== "AbortError") {
+          console.error("Erreur chargement animes:", error);
+        }
       } finally {
-        setLoading(false);
+        if (append) setLoadingMore(false);
+        else setLoading(false);
       }
-    };
+    },
+    [buildQueryParams]
+  );
 
-    fetchAllAnimes();
-  }, []);
+  // --- EFFETS (Optimisation Debounce) (Inchangés) ---
 
-  // 🎯 Filtrage côté client avec useMemo (performance optimale)
-  const filteredAnimes = useMemo(() => {
-    let filtered = [...allAnimes];
-
-    // Filtre Genres
-    if (selectedGenres.length > 0) {
-      filtered = filtered.filter((anime) =>
-        selectedGenres.every((genre) => anime.genres?.includes(genre))
-      );
-    }
-
-    // Filtre Thèmes
-    if (selectedThemes.length > 0) {
-      filtered = filtered.filter((anime) =>
-        selectedThemes.every((theme) => anime.themes?.includes(theme))
-      );
-    }
-
-    // Filtre Type
-    if (selectedTypes.length > 0) {
-      filtered = filtered.filter((anime) => selectedTypes.includes(anime.type));
-    }
-
-    // Filtre Source
-    if (selectedSources.length > 0) {
-      filtered = filtered.filter((anime) =>
-        selectedSources.includes(anime.source)
-      );
-    }
-
-    // Filtre Studio
-    if (selectedStudios.length > 0) {
-      filtered = filtered.filter((anime) =>
-        anime.studios?.some((studio) => selectedStudios.includes(studio))
-      );
-    }
-
-    // Filtre Status
-    if (selectedStatuses.length > 0) {
-      filtered = filtered.filter((anime) =>
-        selectedStatuses.includes(anime.status)
-      );
-    }
-
-    // Filtre Démographie
-    if (demographic) {
-      filtered = filtered.filter((anime) => anime.demographic === demographic);
-    }
-
-    // Filtre Episodes
-    if (minEpisodes > 0) {
-      filtered = filtered.filter(
-        (anime) => (anime.episodes || 0) >= minEpisodes
-      );
-    }
-    if (maxEpisodes > 0) {
-      filtered = filtered.filter(
-        (anime) => (anime.episodes || 0) <= maxEpisodes
-      );
-    }
-
-    // Filtre Score
-    if (minScore > 0) {
-      filtered = filtered.filter((anime) => (anime.score || 0) >= minScore);
-    }
-
-    // Filtre Années
-    if (startYear) {
-      filtered = filtered.filter((anime) => {
-        const year = anime.year || new Date(anime.start_date).getFullYear();
-        return year >= Number(startYear);
-      });
-    }
-    if (endYear) {
-      filtered = filtered.filter((anime) => {
-        const year = anime.year || new Date(anime.start_date).getFullYear();
-        return year <= Number(endYear);
-      });
-    }
-
-    // Tri par score décroissant
-    filtered.sort((a, b) => (b.score || 0) - (a.score || 0));
-
-    return filtered;
-  }, [
-    allAnimes,
-    selectedGenres,
-    selectedThemes,
-    selectedTypes,
-    selectedSources,
-    selectedStudios,
-    selectedStatuses,
-    demographic,
-    minEpisodes,
-    maxEpisodes,
-    minScore,
-    startYear,
-    endYear,
-  ]);
-
-  // Reset displayCount quand les filtres changent
+  // 1. Détection des changements de filtres (avec Debounce)
   useEffect(() => {
-    setDisplayCount(50);
+    // Annuler la requête précédente si elle est en cours
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    // Créer un nouveau contrôleur pour cette session
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
+    // Délai d'attente de 500ms
+    const timer = setTimeout(() => {
+      fetchAnimes(1, false, signal);
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      // On n'abort pas ici dans le return sinon ça annule la requête quand le composant démonte ou rerender
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     selectedGenres,
     selectedThemes,
     selectedTypes,
-    selectedSources,
     selectedStudios,
     selectedStatuses,
     demographic,
-    minEpisodes,
-    maxEpisodes,
+    season,
+    rating,
     minScore,
-    startYear,
-    endYear,
+    maxScore,
+    yearMin,
+    yearMax,
+    searchQuery,
+    sortBy,
+    sortOrder,
+    // On retire fetchAnimes des dépendances pour éviter boucle infinie, car fetchAnimes dépend déjà de ces états
   ]);
 
-  // 📜 Infinite scroll
+  // 2. Infinite Scroll (Sans Debounce, chargement direct)
   useEffect(() => {
-    const handleScroll = () => {
-      if (
-        window.innerHeight + window.scrollY >=
-          document.body.offsetHeight - 300 &&
-        displayCount < filteredAnimes.length
-      ) {
-        setDisplayCount((prev) => Math.min(prev + 50, filteredAnimes.length));
-      }
-    };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0].isIntersecting &&
+          !loading &&
+          !loadingMore &&
+          page < totalPages
+        ) {
+          // On ne passe pas de signal d'annulation ici pour ne pas couper le chargement infini
+          fetchAnimes(page + 1, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
 
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [displayCount, filteredAnimes.length]);
+    if (observerTarget.current) observer.observe(observerTarget.current);
+    return () => observer.disconnect();
+  }, [page, totalPages, loading, loadingMore, fetchAnimes]);
+
+  // --- UI Helpers (Inchangés) ---
 
   const activeFiltersCount =
     selectedGenres.length +
     selectedThemes.length +
     selectedTypes.length +
-    selectedSources.length +
     selectedStudios.length +
     selectedStatuses.length +
     (demographic ? 1 : 0) +
-    (minEpisodes > 0 ? 1 : 0) +
-    (maxEpisodes > 0 ? 1 : 0) +
-    (minScore > 0 ? 1 : 0) +
-    (startYear ? 1 : 0) +
-    (endYear ? 1 : 0);
+    (season ? 1 : 0) +
+    (rating ? 1 : 0) +
+    (minScore ? 1 : 0) +
+    (maxScore ? 1 : 0) +
+    (yearMin ? 1 : 0) +
+    (yearMax ? 1 : 0) +
+    (searchQuery ? 1 : 0);
 
   const clearAllFilters = () => {
     setSelectedGenres([]);
     setSelectedThemes([]);
     setSelectedTypes([]);
-    setSelectedSources([]);
     setSelectedStudios([]);
     setSelectedStatuses([]);
     setDemographic("");
-    setMinEpisodes(0);
-    setMaxEpisodes(0);
-    setMinScore(0);
-    setStartYear("");
-    setEndYear("");
+    setSeason("");
+    setRating("");
+    setMinScore("");
+    setMaxScore("");
+    setYearMin("");
+    setYearMax("");
+    setSearchQuery("");
   };
-
-  // Animes à afficher (lazy loading)
-  const displayedAnimes = filteredAnimes.slice(0, displayCount);
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
@@ -396,39 +449,84 @@ export default function AllAnimesPage() {
             Découvrez vos Animes
           </h1>
           <p className="text-white/60 text-sm sm:text-base lg:text-lg">
-            {loading
-              ? "Chargement de la collection..."
-              : `${filteredAnimes.length} animes disponibles`}
+            {loading && page === 1
+              ? "Recherche en cours..."
+              : `${total.toLocaleString()} animes trouvés`}
           </p>
         </div>
 
+        {/* Barre de recherche */}
+        <div className="mb-4">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+            <input
+              type="text"
+              placeholder="Rechercher un anime (ex: Naruto, One Piece)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white placeholder-white/40 focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none"
+            />
+          </div>
+        </div>
+
         {/* Toggle Filtres */}
-        <button
-          onClick={() => setFiltersVisible(!filtersVisible)}
-          className="mb-4 flex items-center gap-2 px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors shadow-lg text-sm sm:text-base"
-        >
-          <Filter className="w-4 h-4 sm:w-5 sm:h-5" />
-          {filtersVisible ? "Masquer" : "Afficher"} les filtres
-          {activeFiltersCount > 0 && (
-            <span className="px-2 py-0.5 bg-white text-purple-600 text-xs rounded-full font-bold">
-              {activeFiltersCount}
-            </span>
-          )}
-        </button>
+        <div className="mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <button
+            onClick={() => setFiltersVisible(!filtersVisible)}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors shadow-lg text-sm sm:text-base w-full sm:w-auto justify-center"
+          >
+            <Filter className="w-4 h-4 sm:w-5 sm:h-5" />
+            {filtersVisible ? "Afficher" : "Masquer"} les filtres
+            {activeFiltersCount > 0 && (
+              <span className="px-2 py-0.5 bg-white text-purple-600 text-xs rounded-full font-bold ml-2">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
+
+          {/* Tri rapide */}
+          <div className="w-full sm:w-auto">
+            <select
+              value={`${sortBy}-${sortOrder}`}
+              onChange={(e) => {
+                const [newSort, newOrder] = e.target.value.split("-");
+                setSortBy(newSort);
+                setSortOrder(newOrder);
+              }}
+              className="w-full px-3 py-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-lg text-white text-sm focus:border-purple-500 outline-none"
+            >
+              <option value="members-desc" className="bg-gray-900">
+                👥 Les MasterPieces
+              </option>
+              <option value="year-desc" className="bg-gray-900">
+                📅 Plus récents
+              </option>
+
+              <option value="score-desc" className="bg-gray-900">
+                ⭐ Meilleures notes
+              </option>
+
+              <option value="created_at-desc" className="bg-gray-900">
+                🆕 Derniers ajouts
+              </option>
+            </select>
+          </div>
+        </div>
 
         {/* Panneau de Filtres */}
         {filtersVisible && (
-          <div className="mb-6 sm:mb-8 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-3 sm:p-6 shadow-2xl">
+          <div className="mb-6 sm:mb-8 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-2xl p-3 sm:p-6 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="flex items-center justify-between mb-4 sm:mb-6">
               <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
                 <Filter className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
-                Filtres
+                Filtres avancés
               </h2>
               {activeFiltersCount > 0 && (
                 <button
                   onClick={clearAllFilters}
-                  className="text-xs sm:text-sm text-white/60 hover:text-white transition-colors underline"
+                  className="flex items-center gap-2 text-xs sm:text-sm text-white/60 hover:text-white transition-colors border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/5"
                 >
+                  <RotateCcw className="w-4 h-4" />
                   Tout effacer
                 </button>
               )}
@@ -436,7 +534,7 @@ export default function AllAnimesPage() {
 
             {/* Tags des filtres actifs */}
             {activeFiltersCount > 0 && (
-              <div className="mb-4 sm:mb-6 flex flex-wrap gap-2">
+              <div className="mb-4 sm:mb-6 flex flex-wrap gap-2 p-3 bg-black/20 rounded-xl border border-white/5">
                 {selectedGenres.map((g) => (
                   <Pill
                     key={g}
@@ -461,15 +559,6 @@ export default function AllAnimesPage() {
                     label={t}
                     onRemove={() =>
                       setSelectedTypes(selectedTypes.filter((x) => x !== t))
-                    }
-                  />
-                ))}
-                {selectedSources.map((s) => (
-                  <Pill
-                    key={s}
-                    label={s}
-                    onRemove={() =>
-                      setSelectedSources(selectedSources.filter((x) => x !== s))
                     }
                   />
                 ))}
@@ -499,34 +588,40 @@ export default function AllAnimesPage() {
                     onRemove={() => setDemographic("")}
                   />
                 )}
-                {minEpisodes > 0 && (
+                {season && (
+                  <Pill label={season} onRemove={() => setSeason("")} />
+                )}
+                {rating && (
+                  <Pill label={rating} onRemove={() => setRating("")} />
+                )}
+                {minScore && (
                   <Pill
-                    label={`Min: ${minEpisodes} ep`}
-                    onRemove={() => setMinEpisodes(0)}
+                    label={`Score > ${minScore}`}
+                    onRemove={() => setMinScore("")}
                   />
                 )}
-                {maxEpisodes > 0 && (
+                {maxScore && (
                   <Pill
-                    label={`Max: ${maxEpisodes} ep`}
-                    onRemove={() => setMaxEpisodes(0)}
+                    label={`Score < ${maxScore}`}
+                    onRemove={() => setMaxScore("")}
                   />
                 )}
-                {minScore > 0 && (
+                {yearMin && (
                   <Pill
-                    label={`⭐ ${minScore}+`}
-                    onRemove={() => setMinScore(0)}
+                    label={`Après ${yearMin}`}
+                    onRemove={() => setYearMin("")}
                   />
                 )}
-                {startYear && (
+                {yearMax && (
                   <Pill
-                    label={`Depuis ${startYear}`}
-                    onRemove={() => setStartYear("")}
+                    label={`Avant ${yearMax}`}
+                    onRemove={() => setYearMax("")}
                   />
                 )}
-                {endYear && (
+                {searchQuery && (
                   <Pill
-                    label={`Jusqu'à ${endYear}`}
-                    onRemove={() => setEndYear("")}
+                    label={`"${searchQuery}"`}
+                    onRemove={() => setSearchQuery("")}
                   />
                 )}
               </div>
@@ -551,33 +646,26 @@ export default function AllAnimesPage() {
                 />
               </div>
 
-              {/* Ligne 2: Type et Source */}
+              {/* Ligne 2: Type et Studios */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <MultiSelectDropdown
-                  label="Type"
+                  label="Format"
                   options={typeOptions}
                   selected={selectedTypes}
                   onChange={setSelectedTypes}
                   icon={<span className="text-lg sm:text-xl">📺</span>}
                 />
                 <MultiSelectDropdown
-                  label="Source"
-                  options={sourceOptions}
-                  selected={selectedSources}
-                  onChange={setSelectedSources}
-                  icon={<span className="text-lg sm:text-xl">📖</span>}
-                />
-              </div>
-
-              {/* Ligne 3: Studio et Statut */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <MultiSelectDropdown
-                  label="Studio"
+                  label="Studios"
                   options={studioOptions}
                   selected={selectedStudios}
                   onChange={setSelectedStudios}
                   icon={<span className="text-lg sm:text-xl">🎞️</span>}
                 />
+              </div>
+
+              {/* Ligne 3: Status et Démographie */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <MultiSelectDropdown
                   label="Statut"
                   options={statusOptions}
@@ -585,10 +673,7 @@ export default function AllAnimesPage() {
                   onChange={setSelectedStatuses}
                   icon={<span className="text-lg sm:text-xl">▶️</span>}
                 />
-              </div>
 
-              {/* Ligne 4: Démographie et Score */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
                     <span className="text-lg sm:text-xl">👥</span> Démographie
@@ -596,7 +681,7 @@ export default function AllAnimesPage() {
                   <select
                     value={demographic}
                     onChange={(e) => setDemographic(e.target.value)}
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base"
+                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base cursor-pointer hover:bg-white/10"
                   >
                     <option value="" className="bg-gray-900">
                       Toutes
@@ -613,141 +698,188 @@ export default function AllAnimesPage() {
                     <option value="josei" className="bg-gray-900">
                       Josei
                     </option>
+                    <option value="kids" className="bg-gray-900">
+                      Kids
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Ligne 4: Score Min/Max */}
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-white/60 font-medium mb-1 text-xs sm:text-sm">
+                    Score min
+                  </label>
+                  <input
+                    type="number"
+                    value={minScore}
+                    onChange={(e) => setMinScore(e.target.value)}
+                    placeholder="0"
+                    min="0"
+                    max="10"
+                    step="0.5"
+                    className="w-full px-3 py-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-white/60 font-medium mb-1 text-xs sm:text-sm">
+                    Score max
+                  </label>
+                  <input
+                    type="number"
+                    value={maxScore}
+                    onChange={(e) => setMaxScore(e.target.value)}
+                    placeholder="10"
+                    min="0"
+                    max="10"
+                    step="0.5"
+                    className="w-full px-3 py-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Ligne 5: Années */}
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-white/60 font-medium mb-1 text-xs sm:text-sm">
+                    Année min
+                  </label>
+                  <input
+                    type="number"
+                    value={yearMin}
+                    onChange={(e) => setYearMin(e.target.value)}
+                    placeholder="1960"
+                    min="1917"
+                    max="2026"
+                    className="w-full px-3 py-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-white/60 font-medium mb-1 text-xs sm:text-sm">
+                    Année max
+                  </label>
+                  <input
+                    type="number"
+                    value={yearMax}
+                    onChange={(e) => setYearMax(e.target.value)}
+                    placeholder="2025"
+                    min="1917"
+                    max="2026"
+                    className="w-full px-3 py-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Ligne 6: Saison et Rating */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
+                    <span className="text-lg sm:text-xl">🍂</span> Saison
+                  </label>
+                  <select
+                    value={season}
+                    onChange={(e) => setSeason(e.target.value)}
+                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 outline-none cursor-pointer"
+                  >
+                    <option value="" className="bg-gray-900">
+                      Toutes
+                    </option>
+                    <option value="winter" className="bg-gray-900">
+                      Hiver (Winter)
+                    </option>
+                    <option value="spring" className="bg-gray-900">
+                      Printemps (Spring)
+                    </option>
+                    <option value="summer" className="bg-gray-900">
+                      Été (Summer)
+                    </option>
+                    <option value="fall" className="bg-gray-900">
+                      Automne (Fall)
+                    </option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
-                    <span className="text-lg sm:text-xl">⭐</span> Score minimum
+                    <span className="text-lg sm:text-xl">🔞</span>{" "}
+                    Classification
                   </label>
-                  <input
-                    type="number"
-                    value={minScore || ""}
-                    onChange={(e) => setMinScore(Number(e.target.value))}
-                    placeholder="Ex: 7.5"
-                    min="0"
-                    max="10"
-                    step="0.1"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base"
-                  />
-                </div>
-              </div>
-
-              {/* Ligne 5: Episodes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
-                    <span className="text-lg sm:text-xl">📺</span> Min. Épisodes
-                  </label>
-                  <input
-                    type="number"
-                    value={minEpisodes || ""}
-                    onChange={(e) => setMinEpisodes(Number(e.target.value))}
-                    placeholder="0"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
-                    <span className="text-lg sm:text-xl">📺</span> Max. Épisodes
-                  </label>
-                  <input
-                    type="number"
-                    value={maxEpisodes || ""}
-                    onChange={(e) => setMaxEpisodes(Number(e.target.value))}
-                    placeholder="Illimité"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base"
-                  />
-                </div>
-              </div>
-
-              {/* Ligne 6: Années */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
-                    <span className="text-lg sm:text-xl">📅</span> Année de
-                    début
-                  </label>
-                  <input
-                    type="number"
-                    value={startYear}
-                    onChange={(e) => setStartYear(e.target.value)}
-                    placeholder="Ex: 2020"
-                    min="1960"
-                    max="2025"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-white/80 font-medium mb-2 flex items-center gap-2 text-sm sm:text-base">
-                    <span className="text-lg sm:text-xl">📅</span> Année de fin
-                  </label>
-                  <input
-                    type="number"
-                    value={endYear}
-                    onChange={(e) => setEndYear(e.target.value)}
-                    placeholder="Ex: 2024"
-                    min="1960"
-                    max="2025"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500 transition-all outline-none text-sm sm:text-base"
-                  />
+                  <select
+                    value={rating}
+                    onChange={(e) => setRating(e.target.value)}
+                    className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white focus:border-purple-500 outline-none cursor-pointer"
+                  >
+                    <option value="" className="bg-gray-900">
+                      Toutes
+                    </option>
+                    <option value="g" className="bg-gray-900">
+                      G - Tous publics
+                    </option>
+                    <option value="pg" className="bg-gray-900">
+                      PG - Enfants
+                    </option>
+                    <option value="pg-13" className="bg-gray-900">
+                      PG-13 - Ados
+                    </option>
+                    <option value="r" className="bg-gray-900">
+                      R - 17+ (Violence)
+                    </option>
+                    <option value="r+" className="bg-gray-900">
+                      R+ - (Nudité légère)
+                    </option>
+                  </select>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Grille d'Animes */}
-        {loading ? (
-          <div className="flex justify-center items-center py-20">
-            <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
-            <span className="ml-3 text-white/60">Chargement initial...</span>
+        {/* GRILLE DES ANIMES */}
+        {loading && page === 1 ? (
+          <div className="flex flex-col justify-center items-center py-32">
+            <Loader2 className="w-12 h-12 text-purple-500 animate-spin mb-4" />
+            <span className="text-white/60 font-medium">
+              Recherche de vos pépites...
+            </span>
           </div>
-        ) : filteredAnimes.length === 0 ? (
-          <div className="text-center py-12 sm:py-20">
-            <p className="text-white/60 text-lg sm:text-xl mb-3">
-              Aucun anime trouvé avec ces filtres
+        ) : animes.length === 0 ? (
+          <div className="text-center py-12 sm:py-20 bg-white/5 rounded-3xl border border-white/5">
+            <p className="text-white/60 text-lg sm:text-xl mb-6">
+              Aucun anime ne correspond à ces critères stricts.
             </p>
             <button
               onClick={clearAllFilters}
-              className="px-4 sm:px-6 py-2 sm:py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm sm:text-base"
+              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-xl transition-all shadow-lg hover:shadow-purple-500/25 font-medium"
             >
-              Réinitialiser les filtres
+              Réinitialiser tous les filtres
             </button>
           </div>
         ) : (
-          <>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-              {displayedAnimes.map((anime, index) => (
-                <AnimeCard
-                  key={`${anime.id - index}`}
-                  anime={anime}
-                  index={index}
-                />
-              ))}
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+            {animes.map((anime) => (
+              // Assurez-vous que votre composant AnimeCard utilise `anime.id` comme `key`
+              <AnimeCard key={anime.id} anime={anime} />
+            ))}
+          </div>
+        )}
 
-            {/* Indicateur de chargement progressif */}
-            {displayCount < filteredAnimes.length && (
-              <div className="flex justify-center items-center py-8 sm:py-12">
-                <Loader2 className="w-6 h-6 sm:w-8 sm:h-8 text-purple-400 animate-spin" />
-                <span className="ml-3 text-white/60 text-sm sm:text-base">
-                  Chargement de {displayCount} / {filteredAnimes.length}{" "}
-                  animes...
-                </span>
+        {/* Cible pour Infinite Scroll et indicateur de chargement */}
+        {page < totalPages && (
+          <div ref={observerTarget} className="py-8">
+            {loadingMore && (
+              <div className="flex justify-center items-center">
+                <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
               </div>
             )}
+          </div>
+        )}
 
-            {/* Message de fin */}
-            {displayCount >= filteredAnimes.length &&
-              filteredAnimes.length > 0 && (
-                <div className="text-center py-8 text-white/40 text-sm">
-                  🎉 Tous les {filteredAnimes.length} animes sont affichés
-                </div>
-              )}
-          </>
+        {/* Fin du contenu */}
+        {page >= totalPages && !loading && animes.length > 0 && (
+          <div className="text-center py-8 text-white/50 text-sm">
+            Vous avez atteint la fin de la liste d'animes.
+          </div>
         )}
       </div>
     </div>

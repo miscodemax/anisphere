@@ -66,22 +66,6 @@ export default function AnimeCard({
     );
   };
 
-  let demographicQuery = "general"; // valeur par défaut
-
-  // 1. Logique de détermination de la démographie (inchangée)
-  if (anime.demographic) {
-    demographicQuery = anime.demographic.toLowerCase();
-  } else {
-    // Adapter cette logique si vous avez des statuts différents pour les mangas
-    if (
-      anime.status === "Not yet aired" ||
-      anime.status === "Not yet published"
-    ) {
-      demographicQuery = "nouveautes";
-    } else {
-      demographicQuery = "general";
-    }
-  }
   // NOUVELLE LOGIQUE DE DÉDUCTION
   let pathType: "anime" | "manga";
 
@@ -106,7 +90,7 @@ export default function AnimeCard({
   }
   // 2. Construire le lien avec l'ID comme slug et la démographie en query parameter
   // MODIFICATION CLÉ : Utilisation de anime.mediaType pour la partie de la route
-  const linkHref = `/${pathType}/${anime.id}?demographic=${demographicQuery}`;
+  const linkHref = `/${pathType}/${anime.id}`;
 
   return (
     // Début du lien cliquable
