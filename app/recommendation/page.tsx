@@ -1,23 +1,21 @@
+// app/recommendation/page.tsx
 import OtakuBot from "../components/otakubot";
 
 export default function RecommendationPage() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 flex flex-col gap-8">
-      {/* Autres sections de la page */}
-      <section>
-        <h2 className="text-2xl font-bold mb-4">Mes recommandations</h2>
-        {/* ici ton contenu custom */}
+    <>
+      {/* Autres sections AVANT le chat si besoin */}
+      <section className="bg-slate-950 p-8">
+        <h2 className="text-2xl font-bold text-white">Section avant</h2>
       </section>
 
-      {/* Chatbot réutilisable */}
-      <section className="h-[85vh] w-full">
-        <OtakuBot />
-      </section>
+      {/* Le chat prend toute la hauteur de l'écran */}
+      <OtakuBot />
 
-      {/* Autres sections */}
-      <section>
-        <h2 className="text-2xl font-bold mb-4">Autres contenus</h2>
+      {/* Autres sections APRÈS si besoin */}
+      <section className="bg-slate-950 p-8">
+        <h2 className="text-2xl font-bold text-white">Section après</h2>
       </section>
-    </div>
+    </>
   );
 }

@@ -3,20 +3,16 @@ import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { createClient } from "@/lib/supabase";
 
-function clamp01(v: number) {
-  return Math.min(Math.max(v, 0), 1);
-}
-
-function extractYear(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  const y = parseInt(dateStr.slice(0, 4), 10);
+function extractYear(str?: string | null) {
+  if (!str) return null;
+  const y = parseInt(str.split("-")[0]);
   return isNaN(y) ? null : y;
 }
 
 export async function POST(req: Request) {
   try {
-    const { message, history = [] } = await req.json();
-    if (!message || !message.trim()) {
+    const { message } = await req.json();
+    if (!message?.trim()) {
       return NextResponse.json({
         reply: "Dis-moi ce que tu veux regarder 😍🎌",
         matches: [],
@@ -25,242 +21,134 @@ export async function POST(req: Request) {
 
     const supabase = createClient();
 
-    // ==================================================
-    // 1️⃣ Extraction des contraintes "dure"
-    // ==================================================
-    const extractReq = await openai.responses.create({
-      model: "gpt-4o-mini-2024-07-18",
-      input: `
-Analyse le message utilisateur :
-"${message}"
-
-EXTRAIS uniquement les contraintes temporelles.
-
-Retourne strictement ce JSON :
-
-{
- "min_start_year": null | number, // année minimale
- "force_recent": boolean          // si l'utilisateur veut du TRÈS récent
-}
-
-Logique :
-- Si le user cite un an (ex: 2022) => min_start_year = 2022
-- "après XXXX" => min_start_year = XXXX + 1
-- "depuis XXXX" => min_start_year = XXXX
-- "récents / new generation / modernes / nouveauté" => force_recent = true
-
-force_recent = true implique :
-min_start_year = 2025 si aucune autre année n'est donnée.
-`,
-      max_output_tokens: 120,
-    });
-
-    let constraints = { min_start_year: null, force_recent: false };
-
-    try {
-      constraints = JSON.parse(extractReq.output_text);
-    } catch {}
-
-    // Cas spécial : user veut "récent" mais n’a pas donné d’année
-    if (constraints.force_recent && !constraints.min_start_year) {
-      constraints.min_start_year = 2025;
-    }
-
-    // ==================================================
-    // 2️⃣ Rewriting contextuel
-    // ==================================================
-    const contextText =
-      history.length > 0
-        ? history.map((m: any) => m.text).join(". ") + ". " + message
-        : message;
-
+    // 1) Rewriting embedding-friendly
     const rewriting = await openai.responses.create({
       model: "gpt-4o-mini-2024-07-18",
       input: `
-Transforme ce message utilisateur en un PARAGRAPHE immersif, descriptif, optimisé embeddings.
+Réécris ce message pour une recherche vectorielle d'anime :
+"${message}"
 
-"${contextText}"
-
-Règles:
-- 350 à 900 caractères
-- pas de JSON
-- pas de listes
-- pas de retours à la ligne
-- commence directement par le texte.
-`,
+Règles :
+- 300 à 900 caractères
+- Un paragraphe unique
+- Ton immersif et analytique
+- Décris ambiance, émotions, thèmes, style visuel, rythme narratif
+- PAS de liste, PAS de JSON
+Commence directement.
+      `,
       max_output_tokens: 300,
     });
 
-    const forEmbedding = rewriting.output_text.trim();
+    const rewritten = rewriting.output_text.trim();
 
-    // ==================================================
-    // 3️⃣ Embedding
-    // ==================================================
+    // 2) Embedding
     const embRes = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: forEmbedding,
+      input: rewritten,
     });
 
     const queryEmbedding = embRes.data[0].embedding;
 
-    // ==================================================
-    // 4️⃣ Vector search brut
-    // ==================================================
+    // 3) Vector search – NO RESTRICTIONS
     const { data: matches, error } = await supabase.rpc("match_anime_strict", {
       query_embedding: queryEmbedding,
       match_count: 60,
-      min_score: 0.45,
+      min_score: 0.0, // aucune limite
     });
 
     if (error) throw error;
-    if (!matches || matches.length === 0) {
+    if (!matches?.length) {
       return NextResponse.json({
-        reply: "Je n'ai rien trouvé de vraiment pertinent à ta demande 💭✨",
+        reply: "Je n’ai rien trouvé… Ajoute plus de détails 😥✨",
         matches: [],
-        embedding_used: forEmbedding,
-        constraints,
       });
     }
 
+    // 4) Metadata
     const ids = matches.map((m: any) => m.id);
 
-    // ==================================================
-    // 5️⃣ Full metadata (🆕 start_date included)
-    // ==================================================
-    const { data: rows, error: enrichErr } = await supabase
+    const { data: rows, error: errMeta } = await supabase
       .from("anime_all")
-      .select(
-        "id, title, image_url, score, scored_by, popularity, members, start_date"
-      )
+      .select("id, title, image_url, start_date, members")
       .in("id", ids);
 
-    if (enrichErr) throw enrichErr;
+    if (errMeta) throw errMeta;
 
-    const simById = new Map<number, number>();
-    for (const m of matches as any[]) simById.set(m.id, m.score);
-
-    let candidates = rows.map((a: any) => ({
+    // 5) Format candidates
+    const candidates = rows.map((a: any) => ({
       id: a.id,
       title: a.title,
-      image_url: a.image_url,
-      score: a.score,
-      scored_by: a.scored_by,
-      popularity: a.popularity,
-      members: a.members,
-      start_year: extractYear(a.start_date),
-      similarity: simById.get(a.id) ?? 0,
       url: `/anime/${a.id}`,
+      image_url: a.image_url,
+      members: a.members ?? 0,
+      start_year: extractYear(a.start_date),
     }));
 
-    // ==================================================
-    // 6️⃣ FILTER STRICT (année obligatoire)
-    // ==================================================
-    if (constraints.min_start_year) {
-      candidates = candidates.filter(
-        (a) => a.start_year && a.start_year >= constraints.min_start_year
-      );
-    }
+    // 6) → On DONNE les 50 ANIMES bruts à GPT
+    const gptInputList = candidates
+      .map(
+        (c) =>
+          `${c.title} | ${c.url} | members: ${c.members} | year: ${c.start_year}`
+      )
+      .join("\n");
 
-    // Qualité minimale
-    candidates = candidates.filter((a) => {
-      if (a.score < 7.5) return false;
-      if (a.scored_by < 25_000) return false;
-      if (a.members < 50_000) return false;
-      return true;
-    });
+    // 7) GPT final — Sélection intelligente pondérée
+    const answer = await openai.responses.create({
+      model: "gpt-4o-mini-2024-07-18",
+      temperature: 1.05, // plus naturel, fun, instinctif
+      input: [
+        {
+          role: "system",
+          content: `
+Tu es OtakuBot 🎌🔥  
+Un pote otaku GENIAL, expert, passionné, drôle et ultra impliqué.  
+Ton objectif : recommander les MEILLEURS animes possibles.  
 
-    if (candidates.length === 0) {
-      return NextResponse.json({
-        reply: `Aucun anime ne correspond à la contrainte stricte de date ≥ ${constraints.min_start_year} 😭`,
-        matches: [],
-        embedding_used: forEmbedding,
-        constraints,
-      });
-    }
+RÈGLES DE SÉLECTION (pondération interne) :
+- 70% → popularité (members élevés) + pertinence EXACTE avec le besoin du user  
+- 10% → récence (tu boostes légèrement les animes récents si ça colle à la vibe)  
+- 20% → animes sous-cotés mais véritables MASTERCLASS (chef-d'œuvre caché)  
 
-    // ==================================================
-    // 7️⃣ RERANK
-    // ==================================================
-    candidates = candidates.map((a) => {
-      const sim = clamp01(a.similarity);
+RÉSULTAT :
+- Tu choisis **3 à 6 animes maximum**, jamais plus  
+- Tu expliques *pourquoi* chaque anime correspond a la demande du user et pourquoi il doit le regarder  
+- Tu es enthousiaste, passionné, drôle, immersif
+- Style : pote otaku passionné, fun, énergique, avec emojis  
+- Format : [[Titre|URL]]  
+- Jamais de JSON  
+- Le user doit se sentir **compris** et se dire :  
+  "Wow, on m'a donné exactement ce qu'il me fallait."  
+      `,
+        },
 
-      const scoreNorm = a.score / 10;
-      const membersNorm = a.members / 5_000_000;
-      const votesNorm = a.scored_by / 1_500_000;
-      const popNorm = 1 - a.popularity / 20_000;
-
-      let yearNorm = 0;
-      if (a.start_year) {
-        if (a.start_year >= 2023) yearNorm = 1.0;
-        else if (a.start_year >= 2020) yearNorm = 0.75;
-        else if (a.start_year >= 2015) yearNorm = 0.55;
-        else yearNorm = 0.1;
-      }
-
-      let final =
-        sim * 0.48 +
-        scoreNorm * 0.19 +
-        membersNorm * 0.19 +
-        votesNorm * 0.07 +
-        yearNorm * 0.05 +
-        popNorm * 0.02;
-
-      if (a.members > 1_500_000) final *= 1.08;
-      if (a.start_year >= 2023) final *= 1.1;
-
-      return { ...a, final_score: final };
-    });
-
-    candidates.sort((a, b) => b.final_score - a.final_score);
-    const best = candidates.slice(0, 7);
-
-    // ==================================================
-    // 8️⃣ GPT final
-    // ==================================================
-    const systemPrompt = `
-Tu es OtakuBot, mascotte officielle d'Anisphere 🎌🔥
-Fan d'animes, enthousiaste, passionné et fun !
-
-OBLIGATIONS :
-- Tu ne parles QUE des animes fournis.
-- Tu expliques pourquoi ils correspondent.
-- Style fun, passionné, avec emojis.
-- Format lien obligatoire [[Titre|URL]]
-`;
-
-    const userPrompt = `
+        {
+          role: "user",
+          content: `
 Message utilisateur : "${message}"
 
-Recommandations :
-${JSON.stringify(best, null, 2)}
+Voici les 50 animes trouvés :
+${gptInputList}
 
-Consignes :
-- Analyse chaque anime brièvement
-- Dis POURQUOI il colle à l’intention utilisateur
-`;
-
-    const completion = await openai.responses.create({
-      model: "gpt-4o-mini-2024-07-18",
-      input: [
-        { role: "system", content: systemPrompt },
-        ...history.map((m: any) => ({
-          role: m.role,
-          content: m.text,
-        })),
-        { role: "user", content: userPrompt },
+Sélectionne entre **3 et 6** animes selon les règles suivantes :
+- ta priorité = pertinence EXACTE avec ce que cherche le user le user doit se dire lui il comprend ce que je veux reellement regarder 
+- privilégie les animes avec beaucoup de members (70%)  
+- ajoute à ta sélection **1 ou 2 chefs-d'œuvre sous-cotés** si ça améliore la recommandation (20%)  
+- prends un léger compte la récence (10%)  
+- conseille-les avec passion et humour comme un vrai fan 🎌🔥  
+      `,
+        },
       ],
     });
 
     return NextResponse.json({
-      reply: completion.output_text,
-      matches: best,
-      constraints,
-      embedding_used: forEmbedding,
+      reply: answer.output_text,
+      matches: candidates.slice(0, 6), // on renvoie tout ou une partie
+      embedding_used: rewritten,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ OtakuBot ERROR:", err);
     return NextResponse.json(
-      { error: err.message || err.toString() },
+      { error: "Server error", details: String(err) },
       { status: 500 }
     );
   }

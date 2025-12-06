@@ -32,7 +32,7 @@ export default function RelatedWorksSection({ currentAnime }) {
       const supabase = createClient();
 
       try {
-        // 1) Embedding actuel
+        // 1) Embedding de l’anime actuel
         const { data: current } = await supabase
           .from(currentAnime.table)
           .select("embedding")
@@ -47,11 +47,16 @@ export default function RelatedWorksSection({ currentAnime }) {
 
         const embedding = toArray(current.embedding);
 
-        // 2) Recherche HNSW
-        const { data, error } = await supabase.rpc("match_all_anime", {
+        // ============================================================
+        // 🚀 RPC match_anime_strict — version PURE
+        // ============================================================
+        // ============================================================
+        // 🚀 RPC match_anime_strict — version PURE
+        // ============================================================
+        const { data, error } = await supabase.rpc("match_anime_strict", {
           query_embedding: embedding,
-          match_count: 25,
-          min_similarity: 0.32, // léger pour laisser rerank trier
+          match_count: 12,
+          min_score: 0.0,
         });
 
         if (error) {
@@ -60,58 +65,43 @@ export default function RelatedWorksSection({ currentAnime }) {
           return;
         }
 
-        let candidates =
-          data?.map((a: any) => ({
-            id: a.id,
-            title: a.title,
-            image_url: a.image_url,
-            similarity: a.cosine_score,
-            score: a.score,
-            popularity: a.popularity,
-            year: a.year,
-            url: `/anime/${a.id}`,
-          })) || [];
+        // IDs des résultats vectoriels
+        const ids = data.map((m: any) => m.id);
 
-        // 3) Remove current anime
+        // ============================================================
+        // ⭐ On récupère les métadonnées complètes (incl. image_url)
+        // ============================================================
+        const { data: meta, error: metaErr } = await supabase
+          .from("anime_all")
+          .select("id, title, image_url, start_date")
+          .in("id", ids);
+
+        if (metaErr) {
+          console.error("❌ Erreur métadonnées:", metaErr);
+          setLoading(false);
+          return;
+        }
+
+        // map des scores de similarité
+        const simMap = new Map();
+        for (const m of data) simMap.set(m.id, m.similarity);
+
+        // Fusion résultats RPC + métadonnées
+        let candidates = meta.map((a: any) => ({
+          id: a.id,
+          title: a.title,
+          image_url: a.image_url,
+          similarity: simMap.get(a.id) ?? 0,
+          url: `/anime/${a.id}`,
+        }));
+
+        // remove current anime
         candidates = candidates.filter((a) => a.id !== currentAnime.id);
 
-        // 4) Déduplication au cas où (rare mais propre)
-        const unique = new Map();
-        for (const a of candidates) unique.set(a.id, a);
-        candidates = Array.from(unique.values());
+        // tri par similarité
+        candidates.sort((a, b) => b.similarity - a.similarity);
 
-        // 5) Anti-daubes
-        candidates = candidates.filter((a) => {
-          if (a.score !== null && a.score < 6.5) return false;
-          if (a.popularity && a.popularity > 50000) return false;
-          return true;
-        });
-
-        // 6) Rerank hybride
-        const maxPopularity = Math.max(
-          ...candidates.map((a) => a.popularity || 1)
-        );
-
-        candidates = candidates.map((a) => {
-          const sim = clamp01(a.similarity);
-          const malNorm = normalize(a.score, 10);
-          const popNorm =
-            a.popularity && maxPopularity
-              ? 1 - a.popularity / maxPopularity
-              : 0.5;
-          const yearNorm =
-            a.year && a.year >= 1990 ? (a.year - 1990) / 35 : 0.2;
-
-          const final =
-            sim * 0.55 + malNorm * 0.25 + popNorm * 0.15 + yearNorm * 0.05;
-
-          return { ...a, final_score: final };
-        });
-
-        // 7) Sort desc
-        candidates.sort((a, b) => b.final_score - a.final_score);
-
-        // 8) Top 12 final
+        // top 12
         setRelatedWorks(candidates.slice(0, 12));
       } catch (err) {
         console.error("Erreur : ", err);
