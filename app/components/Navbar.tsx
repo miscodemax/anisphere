@@ -33,52 +33,66 @@ export default function Navbar() {
 
   // Auth
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [supabaseClient, setSupabaseClient] = useState<any>(null);
 
-  const supabase = createClient();
   const pathname = usePathname();
 
   /** Mount */
   useEffect(() => {
     setMounted(true);
+
+    // ⚠️ IMPORTANT : créer Supabase uniquement côté client
+    const client = createClient();
+    setSupabaseClient(client);
   }, []);
 
   /** Toutes les actions dépendant du navigateur */
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !supabaseClient) return;
 
     // Scroll
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
 
     // Auth session
-    supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
+    supabaseClient.auth.getUser().then(({ data: { user } }) => setUser(user));
 
     // Auth listener
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
+    const { data } = supabaseClient.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null);
+      }
+    );
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
       data.subscription.unsubscribe();
     };
-  }, [mounted]);
+  }, [mounted, supabaseClient]);
 
   /** Login */
   const handleLogin = async () => {
+    if (!supabaseClient) return;
+
     const next = pathname === "/login" ? "/" : pathname;
 
-    await supabase.auth.signInWithOAuth({
+    await supabaseClient.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${next}`,
+        redirectTo: `${
+          window.location.origin
+        }/auth/callback?redirect=${encodeURIComponent(
+          window.location.pathname
+        )}`,
       },
     });
   };
 
   /** Logout */
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (!supabaseClient) return;
+
+    await supabaseClient.auth.signOut();
     setUser(null);
     setMobileMenuOpen(false);
   };
@@ -113,7 +127,6 @@ export default function Navbar() {
           </Link>
 
           <div className="flex items-center gap-4">
-            {/* Désactivé avant mount */}
             <ThemeToggle />
           </div>
         </div>
@@ -210,11 +223,6 @@ export default function Navbar() {
                           ? "bg-indigo-600 shadow-md shadow-indigo-500/20"
                           : "bg-white/5"
                       }`}
-                      transition={{
-                        type: "spring",
-                        bounce: 0.2,
-                        duration: 0.6,
-                      }}
                     />
                   )}
                   <span className="relative z-10 flex items-center gap-2">
@@ -334,7 +342,7 @@ export default function Navbar() {
               ))}
 
               {/* Catalogue mobile */}
-              <div className="flex flex-col gap-2 pl-4 border-l border-white/20">
+              <div className="flex flex-col gap-2 pl-4 border-l border.white/20">
                 <h3 className="text-sm text-slate-400 font-bold uppercase mt-2 flex items-center gap-2">
                   <Layers size={16} /> Catalogue
                 </h3>
@@ -371,7 +379,7 @@ export default function Navbar() {
                   <Link
                     href="/profile"
                     onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10"
+                    className="flex.items-center gap-4 p-4 rounded-xl bg-white/5 border border-white/10"
                   >
                     {user.user_metadata?.avatar_url ? (
                       <img
@@ -396,7 +404,7 @@ export default function Navbar() {
                     setMobileMenuOpen(false);
                     handleLogin();
                   }}
-                  className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-4 rounded-xl text-center font-bold shadow-lg shadow-indigo-900/20 flex items-center justify-center gap-2"
+                  className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text.white py-4 rounded-xl text-center font-bold shadow-lg shadow-indigo-900/20 flex items-center justify-center gap-2"
                 >
                   <LogIn size={20} />
                   Se connecter

@@ -40,6 +40,17 @@ export default function OtakuBot({ className }: OtakuBotProps) {
   const [selectedAnime, setSelectedAnime] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  // Session ID persistant pour la mémoire du bot
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let id = localStorage.getItem("session_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("session_id", id);
+    }
+    setSessionId(id);
+  }, []);
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
@@ -54,6 +65,7 @@ export default function OtakuBot({ className }: OtakuBotProps) {
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
+    if (!sessionId) return;
 
     const userMsg: Message = { role: "user", text: input, matches: [] };
     setMessages((m) => [...m, userMsg]);
@@ -61,12 +73,13 @@ export default function OtakuBot({ className }: OtakuBotProps) {
     setLoading(true);
 
     try {
-      const shortHistory = messages.slice(-20);
-
       const res = await fetch("/api/otakubot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input, history: shortHistory }),
+        body: JSON.stringify({
+          message: input,
+          session_id: sessionId, // 🔥 mémoire
+        }),
       });
 
       const data = await res.json();
@@ -91,8 +104,11 @@ export default function OtakuBot({ className }: OtakuBotProps) {
       setLoading(false);
     }
   }
-
   function newConversation() {
+    const newId = crypto.randomUUID();
+    localStorage.setItem("session_id", newId);
+    setSessionId(newId);
+
     setMessages([
       {
         role: "assistant",
