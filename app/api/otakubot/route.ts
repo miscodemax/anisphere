@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { createClient } from "@/lib/supabase";
+import { desc } from "framer-motion/client";
 
 function extractYear(str?: string | null) {
   if (!str) return null;
@@ -49,14 +50,15 @@ Commence directement.
 
     const queryEmbedding = embRes.data[0].embedding;
 
-    // 3) Vector search – NO RESTRICTIONS
+    // 3) Vector search using match_anime_strict
     const { data: matches, error } = await supabase.rpc("match_anime_strict", {
       query_embedding: queryEmbedding,
       match_count: 60,
-      min_score: 0.0, // aucune limite
+      min_score: 0.0,
     });
 
     if (error) throw error;
+
     if (!matches?.length) {
       return NextResponse.json({
         reply: "Je n’ai rien trouvé… Ajoute plus de détails 😥✨",
@@ -69,7 +71,7 @@ Commence directement.
 
     const { data: rows, error: errMeta } = await supabase
       .from("anime_all")
-      .select("id, title, image_url, start_date, members")
+      .select("id, title, image_url, start_date, members, description")
       .in("id", ids);
 
     if (errMeta) throw errMeta;
@@ -78,71 +80,116 @@ Commence directement.
     const candidates = rows.map((a: any) => ({
       id: a.id,
       title: a.title,
+      description: a.description,
       url: `/anime/${a.id}`,
       image_url: a.image_url,
       members: a.members ?? 0,
       start_year: extractYear(a.start_date),
     }));
 
-    // 6) → On DONNE les 50 ANIMES bruts à GPT
+    // List prepared for GPT
     const gptInputList = candidates
       .map(
         (c) =>
-          `${c.title} | ${c.url} | members: ${c.members} | year: ${c.start_year}`
+          `${c.id} | ${c.title} | synopsis: ${c.description} | ${c.url} | members: ${c.members} | year: ${c.start_year}`
       )
       .join("\n");
 
-    // 7) GPT final — Sélection intelligente pondérée
+    // 6) GPT FINAL — selection + personality S-tier
     const answer = await openai.responses.create({
       model: "gpt-4o-mini-2024-07-18",
-      temperature: 1.05, // plus naturel, fun, instinctif
+      temperature: 1.05,
       input: [
         {
           role: "system",
           content: `
-Tu es OtakuBot 🎌🔥  
-Un pote otaku GENIAL, expert, passionné, drôle et ultra impliqué.  
-Ton objectif : recommander les MEILLEURS animes possibles.  
+Tu es **OtakuBot 🎌🔥**, la mascotte officielle d’Anisphere.  
+Ton rôle : être **le meilleur pote otaku que tout fan rêve d'avoir**.
 
-RÈGLES DE SÉLECTION (pondération interne) :
-- 70% → popularité (members élevés) + pertinence EXACTE avec le besoin du user  
-- 10% → récence (tu boostes légèrement les animes récents si ça colle à la vibe)  
-- 20% → animes sous-cotés mais véritables MASTERCLASS (chef-d'œuvre caché)  
+PERSONNALITÉ :
+- Passionné, drôle, ultra bavard mais pertinent.
+- Compare les œuvres naturellement (vibes, rythme, ambiance).
+- Tu donnes des explications immersives, images mentales, références.
+- Jamais robot. Naturel, fun, humain.
+- Tu fais vivre une vibe de vrai pote otaku IRL.
 
-RÉSULTAT :
-- Tu choisis **3 à 6 animes maximum**, jamais plus  
-- Tu expliques *pourquoi* chaque anime correspond a la demande du user et pourquoi il doit le regarder  
-- Tu es enthousiaste, passionné, drôle, immersif
-- Style : pote otaku passionné, fun, énergique, avec emojis  
-- Format : [[Titre|URL]]  
-- Jamais de JSON  
-- Le user doit se sentir **compris** et se dire :  
-  "Wow, on m'a donné exactement ce qu'il me fallait."  
-      `,
+STYLE :
+- Phrases vivantes : "vibes", "énergie", "mise en scène", "construction des persos".
+- Comparaisons stylées : “une vibe entre Monster et Code Geass”.
+- Tu expliques EXACTEMENT pourquoi un anime correspond au user.
+- Tu fais monter la hype.
+
+RÈGLES DE RECOMMANDATION :
+- Tu sélectionnes **3 à 6 animes maximum**.
+- Pondération interne :
+    70% pertinence + popularité  
+    10% récence  
+    20% masterclass sous-cotées
+- Format visible utilisateur :
+  [[Titre|URL]] + explication passionnée.
+- PAS de liste robotique.
+
+BLOC TECHNIQUE (OBLIGATOIRE et invisible au user) :
+À la fin de TA réponse, tu ajoutes :
+
+[SELECTED]
+id1
+id2
+id3
+...
+[/SELECTED]
+
+Ce bloc sera extrait par l’API.
+          `,
         },
-
         {
           role: "user",
           content: `
 Message utilisateur : "${message}"
 
-Voici les 50 animes trouvés :
+Voici les 60 animes trouvés :
 ${gptInputList}
 
-Sélectionne entre **3 et 6** animes selon les règles suivantes :
-- ta priorité = pertinence EXACTE avec ce que cherche le user le user doit se dire lui il comprend ce que je veux reellement regarder 
-- privilégie les animes avec beaucoup de members (70%)  
-- ajoute à ta sélection **1 ou 2 chefs-d'œuvre sous-cotés** si ça améliore la recommandation (20%)  
-- prends un léger compte la récence (10%)  
-- conseille-les avec passion et humour comme un vrai fan 🎌🔥  
-      `,
+Sélectionne 3 à 6 animes, explique-les avec énergie.
+À la fin, place le bloc :
+
+[SELECTED]
+ID1
+ID2
+...
+[/SELECTED]
+          `,
         },
       ],
     });
 
+    // 7) EXTRACTION DES IDS SELECTIONNÉS
+    const raw = answer.output_text;
+
+    const idsSelected: number[] = [];
+    const matchBlock = raw.match(/\[SELECTED\]([\s\S]*?)\[\/SELECTED\]/);
+
+    if (matchBlock) {
+      const extracted = matchBlock[1]
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => /^[0-9]+$/.test(l));
+
+      extracted.forEach((id) => idsSelected.push(Number(id)));
+    }
+
+    const finalIds = idsSelected.length > 0 ? idsSelected : ids.slice(0, 6);
+
+    const finalMatches = candidates.filter((c) => finalIds.includes(c.id));
+
+    // Nettoyage du texte visible
+    const finalReply = raw
+      .replace(/\[SELECTED\]([\s\S]*?)\[\/SELECTED\]/g, "")
+      .trim();
+
     return NextResponse.json({
-      reply: answer.output_text,
-      matches: candidates.slice(0, 6), // on renvoie tout ou une partie
+      reply: finalReply,
+      matches: finalMatches,
       embedding_used: rewritten,
     });
   } catch (err) {
