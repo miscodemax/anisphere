@@ -157,6 +157,8 @@ Commence directement.
         url: `/anime/${m.id}`,
         image_url: meta.image_url ?? "",
         members: meta.members ?? 0,
+        score: m.score ?? null,
+        scored_by: m.scored_by ?? null,
         start_year: extractYear(meta.start_date ?? m.start_date),
         similarity: typeof similarity === "number" ? similarity : null,
         demographic: m.demographic || null,
@@ -181,7 +183,9 @@ Commence directement.
             ?.slice(0, 400)
             .replace(/\n/g, " ")} | url: ${c.url} | members: ${
             c.members
-          } | year: ${c.start_year} | similarity: ${c.similarity ?? "N/A"}`
+          } | score: ${c.score} | scored_by(votes): ${c.scored_by} | year: ${
+            c.start_year
+          } | similarity: ${c.similarity ?? "N/A"}`
       )
       .join("\n");
 
@@ -218,10 +222,10 @@ id3
 8) si le user demande des animes d'une annee precise ou d'une periode precise tu doit absolument respecter cette demande et ne pas lui proposer des animes en dehors de cette periode precise
 9) si le user te demande des animes d'un genre precis comme le mecha le isekai le shonen le shojo le seinen le sport etc... tu doit absolument respecter cette demande et ne pas lui proposer des animes en dehors de ce genre precis.
 Méthode d'analyse (OBLIGATOIRE) :
-- Compare chaque anime au message utilisateur et à la mémoire.
-- Utilise members pour estimer la "popularité" (normalise).
+- Compare chaque anime au message utilisateur et à la mémoire mais utilise la memoire avec parcimonie sa sert juste a pouvoir discuter naturellement avec le user et le comprendre en se souvenant de ses preferences et de ce qu'il as dis plutot et t'en servir si besoin pur etre plus precis et naturel avec le user donc etre un meilleur pote otaku.
+- Utilise members pour estimer la "popularité" (normalise) et aussi le ratio score et le scored_by (le nombre de vote) pour denicher les pepits grace a members + score + scored_by ainsi que tes connaissance sur les animes que le users pourrais aimer en fonction de sa requete s'il te dis reccomende moi d'autres dans le meme style donne lui des animes differents mais dans le meme style.
 - Si la similarité fournie existe, prends-la en compte pour renforcer pertinence.
-- Ne sois pas robotique — sois un pote qui comprend l'utilisateur ecrit comme si tu parlais a un pote otaku de maniere familier le user doit sentir cela.
+- Ne sois pas robotique — sois un pote qui comprend l'utilisateur ecrit comme si tu parlais a un pote otaku avec des emojis et tout soit drole amusant de maniere familier le user doit sentir cela.
 
 FORMAT RECOMMANDÉ :
 Réponds toujours en **markdown bien structuré**.
