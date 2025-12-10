@@ -146,7 +146,9 @@ export default function RelatedWorksSection({ currentAnime }) {
               <Layers className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-2xl sm:text-3xl font-black">Œuvres Liées</h2>
+              <h2 className="text-2xl sm:text-3xl font-black">
+                Œuvres Similaires
+              </h2>
               <p className="text-sm opacity-70">Recommandées selon cet anime</p>
             </div>
           </div>
